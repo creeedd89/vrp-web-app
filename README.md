@@ -4,6 +4,15 @@ VRP Global is an advanced options analytics web application designed for analyzi
 
 The screener allows traders to dynamically fetch live option chain data, calculate realized vs. implied volatility, and identify options that are potentially mispriced based on historical variance.
 
+## 🎯 The Core Problem Addressed
+
+This project was built to empirically answer a fundamental quantitative finance question: **Do variance risk premiums exist more prevalently in retail-heavy markets (like India) compared to institutional-heavy markets (like the US)?**
+
+*   **Implied Volatility (IV)** is the market's expectation of future price movement, driven by the demand and price of options.
+*   **Realized Volatility (RV)** is the actual historical movement of the underlying asset.
+*   **Variance Risk Premium (VRP)** is the spread between the two (`VRP = IV - RV`).
+
+In highly retail-driven markets like the National Stock Exchange of India (NSE), there is often massive speculative demand for options, which artificially inflates option prices and, consequently, Implied Volatility. By comparing the live VRP of NSE equities (e.g., `RELIANCE.NS`) side-by-side with US equities (e.g., `AAPL`), this tool visually and mathematically proves whether a structural, positive premium exists for sellers in these retail-heavy environments.
 ![US Screener](/public/screenshots/us_screener.png)
 ![NSE Screener](/public/screenshots/nse_screener.png)
 
