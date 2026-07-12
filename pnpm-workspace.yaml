@@ -1,7 +1,10 @@
 allowBuilds:
+  '@apollo/protobufjs': set this to true or false
   '@prisma/client': set this to true or false
   '@prisma/engines': set this to true or false
+  '@scarf/scarf': set this to true or false
   core-js: set this to true or false
+  es5-ext: set this to true or false
   prisma: set this to true or false
   sharp: true
   unrs-resolver: true

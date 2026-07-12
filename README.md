@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VRP Global — Variance Risk Premium Analytics
 
-## Getting Started
+VRP Global is an advanced options analytics web application designed for analyzing the **Variance Risk Premium (VRP)** of equities across global markets. 
 
-First, run the development server:
+The screener allows traders to dynamically fetch live option chain data, calculate realized vs. implied volatility, and identify options that are potentially mispriced based on historical variance.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+![US Screener](/public/screenshots/us_screener.png)
+![NSE Screener](/public/screenshots/nse_screener.png)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🌟 Key Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+*   **Global Options Data:** Supports both US Equities (via MarketData.app) and Indian Equities (via NSE India natively).
+*   **Intelligent Routing:** The custom backend API automatically detects the exchange based on the ticker symbol (e.g., `.NS` suffix for India) and routes the request to the appropriate data provider.
+*   **Live Data Badges:** The UI actively reflects the real-time status of your data, distinguishing between `"Live Data"`, `"NSE Live Data"`, and `"Simulated Data"` (fallback).
+*   **Advanced Analytics:** Calculates and displays Implied Volatility, Realized Volatility, Delta, Gamma, Theta, Vega, and the VRP spread.
+*   **Graceful Degradation:** If an API rate limit is hit or a network error occurs, the system smoothly transitions to localized simulated data to prevent the UI from crashing.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🚀 Getting Started
 
-## Learn More
+### Prerequisites
 
-To learn more about Next.js, take a look at the following resources:
+*   Node.js 18+
+*   pnpm (recommended) or npm
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Installation
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/yourusername/vrp-global.git
+    cd vrp-global/web-app
+    ```
 
-## Deploy on Vercel
+2.  Install dependencies:
+    ```bash
+    pnpm install
+    ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3.  Configure Environment Variables:
+    Create a `.env.local` file in the `web-app` directory and add your MarketData.app API key:
+    ```env
+    MARKETDATA_API_TOKEN=your_free_token_here
+    ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4.  Start the development server:
+    ```bash
+    pnpm dev
+    ```
+
+5.  Open `http://localhost:3002/screener` in your browser.
+
+## 📡 API Routing Assumptions
+
+To keep the application highly scalable without running up massive API bills, the following data routing assumptions are made:
+
+1.  **US Equities (e.g., `AAPL`, `SPY`):**
+    *   Requests are routed to **MarketData.app** via the `/api/option-chain` route.
+    *   MarketData provides delayed live options data for free accounts, with a hard limit on request frequency.
+    *   If the request times out or is rejected (e.g., 400/404), the backend falls back to simulated VRP calculations.
+
+2.  **Indian Equities (e.g., `RELIANCE.NS`, `TCS.NS`):**
+    *   Requests are routed natively to the **National Stock Exchange of India (NSE)** using the `stock-nse-india` package.
+    *   *Note:* The NSE applies anti-bot protections. The backend will automatically negotiate session cookies on the very first request. This first request may take up to 15 seconds to resolve, but all subsequent requests are cached and resolve rapidly.
+    *   Requires the `.NS` suffix to correctly route.
+
+## 🛠 Tech Stack
+
+*   **Frontend:** Next.js 14 (App Router), React, Tailwind CSS
+*   **Backend:** Next.js API Routes (Serverless)
+*   **Data Providers:** MarketData.app (US), NSE India (IN)
+*   **Package Management:** pnpm
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

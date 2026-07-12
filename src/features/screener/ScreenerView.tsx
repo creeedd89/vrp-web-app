@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Search, SlidersHorizontal, Filter, ArrowUpDown, Download } from "lucide-react";
+import { Search, SlidersHorizontal, Filter, ArrowUpDown, Download, Loader2 } from "lucide-react";
 import TopBar from "@/shared/components/TopBar";
-import { generateOptionsChain, OptionContract } from "@/shared/data/optionsChain";
+import { OptionContract } from "@/shared/data/mockOptionsChain";
 import { globalMarkets } from "@/shared/data/markets";
 import { exportToCSV } from "@/shared/utils/exportToCSV";
 import WatchlistStar from "@/shared/components/WatchlistStar";
@@ -11,9 +11,14 @@ import { useSession } from "next-auth/react";
 
 export default function ScreenerView() {
   const { data: session } = useSession();
-  const primaryMarket = globalMarkets[0];
   
   const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set());
+  const [ticker, setTicker] = useState("SPY");
+  const [baseChain, setBaseChain] = useState<OptionContract[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<"live" | "mock" | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (session?.user) {
@@ -30,10 +35,44 @@ export default function ScreenerView() {
     }
   }, [session]);
   
-  // Use useMemo to generate the options chain only once for the primary market
-  const baseChain = useMemo(() => 
-    generateOptionsChain(primaryMarket.indexValue, primaryMarket.realizedVol), 
-  [primaryMarket]);
+  // Fetch options chain from API (debounced to avoid spamming on every keystroke)
+  useEffect(() => {
+    if (ticker.length < 1) return;
+
+    let isMounted = true;
+    const debounceTimer = setTimeout(() => {
+      setIsLoading(true);
+      setError(null);
+      setWarning(null);
+
+      fetch(`/api/option-chain?symbol=${ticker}`)
+        .then(res => res.json())
+        .then(data => {
+          if (!isMounted) return;
+          if (data.data) {
+            setBaseChain(data.data);
+            setDataSource(data.source || "live");
+            if (data.warning) setWarning(data.warning);
+          } else if (data.error) {
+            setError(data.error);
+            setBaseChain([]);
+          }
+        })
+        .catch(err => {
+          if (!isMounted) return;
+          setError("Failed to fetch options chain data.");
+          setBaseChain([]);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    }, 500);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(debounceTimer);
+    };
+  }, [ticker]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "CALL" | "PUT">("ALL");
@@ -49,7 +88,7 @@ export default function ScreenerView() {
   }, [baseChain, filterType, filterExpiry, searchTerm]);
 
   const handleExportCSV = () => {
-    exportToCSV(filteredChain, "VRP_Options_Screener_Results");
+    exportToCSV(filteredChain, `${ticker}_Options_Screener_Results`);
   };
 
   return (
@@ -59,10 +98,41 @@ export default function ScreenerView() {
         subtitle="Find mispriced contracts based on Variance Risk Premium"
       />
 
-      <div className="px-8 py-6 flex-1 flex flex-col gap-6 overflow-hidden">
+      <div className="px-8 py-6 flex-1 flex flex-col gap-4 overflow-hidden">
+        {/* Data Source Banner */}
+        {dataSource && !isLoading && (
+          <div className="flex items-center gap-3">
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider"
+              style={{
+                background: dataSource === "live" ? "var(--positive-bg)" : dataSource === "nse" ? "var(--primary-bg)" : "var(--warning-bg)",
+                color: dataSource === "live" ? "var(--positive)" : dataSource === "nse" ? "var(--primary)" : "var(--warning)",
+                border: `1px solid ${dataSource === "live" ? "var(--positive)" : dataSource === "nse" ? "var(--primary)" : "var(--warning)"}40`,
+              }}
+            >
+              <span className="w-2 h-2 rounded-full" style={{
+                background: dataSource === "live" ? "var(--positive)" : dataSource === "nse" ? "var(--primary)" : "var(--warning)",
+              }} />
+              {dataSource === "live" ? "Live Data" : dataSource === "nse" ? "NSE Live Data" : "Simulated Data"}
+            </span>
+            {warning && (
+              <span className="text-xs" style={{ color: "var(--warning)" }}>
+                {warning}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Controls Row */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                placeholder="Ticker"
+                value={ticker}
+                onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                className="input-field w-[100px] font-bold text-center"
+              />
             <div className="relative">
               <Search
                 size={16}
@@ -109,8 +179,9 @@ export default function ScreenerView() {
               <SlidersHorizontal size={14} />
               More Filters
             </button>
-            <button className="btn-primary">
-              Run Screener
+            <button className="btn-primary flex items-center gap-2">
+              {isLoading && <Loader2 size={14} className="animate-spin" />}
+              Refresh Data
             </button>
           </div>
         </div>
@@ -192,8 +263,21 @@ export default function ScreenerView() {
               </tbody>
             </table>
             
-            {filteredChain.length === 0 && (
-              <div className="flex flex-col items-center justify-center p-12 text-center">
+            {isLoading && (
+              <div className="flex flex-col items-center justify-center p-12 text-center h-[300px]">
+                <Loader2 size={48} className="animate-spin" style={{ color: "var(--accent)" }} />
+                <h3 className="text-lg font-semibold mt-4" style={{ color: "var(--text-primary)" }}>Loading Options Chain...</h3>
+              </div>
+            )}
+
+            {!isLoading && error && (
+              <div className="flex flex-col items-center justify-center p-12 text-center h-[300px]">
+                <h3 className="text-lg font-semibold" style={{ color: "var(--negative)" }}>{error}</h3>
+              </div>
+            )}
+
+            {!isLoading && !error && filteredChain.length === 0 && (
+              <div className="flex flex-col items-center justify-center p-12 text-center h-[300px]">
                 <Filter size={48} style={{ color: "var(--text-muted)", opacity: 0.5, marginBottom: "1rem" }} />
                 <h3 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>No contracts found</h3>
                 <p style={{ color: "var(--text-secondary)" }}>Try adjusting your filters to see more results.</p>
@@ -205,3 +289,4 @@ export default function ScreenerView() {
     </div>
   );
 }
+
