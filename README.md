@@ -78,6 +78,12 @@ To keep the application highly scalable without running up massive API bills, th
 *   **Data Providers:** MarketData.app (US), NSE India (IN)
 *   **Package Management:** pnpm
 
+## 📐 Mathematics & Methodology
+
+For a complete breakdown of every formula, assumption, and calculation used in this project — including Black-Scholes, the Greeks, volatility smile modeling, VRP heatmap thresholds, and the mock data generation model — see:
+
+**📄 [docs/MATHEMATICS.md](docs/MATHEMATICS.md)**
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

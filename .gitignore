@@ -44,3 +44,10 @@ next-env.d.ts
 # Database
 *.db
 *.db-journal
+
+# Scratch/test files
+scratch_*
+test-*
+aapl_response.json
+.gitignore_extra
+.github/
