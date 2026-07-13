@@ -1,56 +1,64 @@
-# VRP Global — Institutional Options Risk & Analytics
+# VRP Global
 
-VRP Global is an institutional-grade options analytics platform designed to analyze the **Variance Risk Premium (VRP)** of equities across global markets. 
+**An institutional-grade Volatility Risk Premium analysis tool to identify mispriced options across global markets.**
 
-By comparing the market's expectation of volatility (Implied Volatility) against the actual historical movement of an asset (Realized Volatility), VRP Global helps traders visually and mathematically identify mispriced options.
+![Next.js](https://img.shields.io/badge/Next.js-16.2.10-black?logo=next.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
+![Prisma](https://img.shields.io/badge/Prisma-5.22.0-2D3748?logo=prisma)
+![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?logo=docker)
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 
-![US Screener](/public/screenshots/us_screener.png)
+## What is VRP?
 
----
+**Variance Risk Premium (VRP)** is the spread between the market's expectation of future volatility (Implied Volatility) and the actual historical movement of an asset (Realized Volatility). 
 
-## 🎯 The Core Philosophy: Why VRP?
+In highly speculative, retail-driven markets, the demand for options can artificially inflate Implied Volatility beyond mathematical reality. By dynamically calculating true historical variance and comparing it to live option prices, this platform allows traders to systematically identify environments where sellers are receiving a structural premium.
 
-**Do variance risk premiums exist more prevalently in retail-heavy markets (like India) compared to institutional-heavy markets (like the US)?**
+## Key Features
 
-In highly speculative markets, immense retail demand for options artificially inflates option prices and Implied Volatility (IV). 
-*   **IV (Implied Volatility):** The market's expectation of future price movement.
-*   **RV (Realized Volatility):** The actual historical movement of the asset.
-*   **VRP = IV - RV**
+*   **Global Options Screener:** Fetches live option chains and instantly calculates Black-Scholes Greeks (Delta, Gamma, Theta, Vega) alongside the exact VRP for every strike.
+*   **3D Volatility Surface Visualization:** Interactive 3D topological plots (via Plotly) that map the volatility smile across strike prices and expirations to instantly spot localized mispricings.
+*   **Portfolio Risk Aggregator:** Simulates hypothetical options portfolios in real-time, netting Greeks and approximating a 1-day 99% Value at Risk (VaR).
+*   **Live Surface Analytics:** Tracks aggregate market states (Average IV, Average VRP, Put-Call Ratio) over time, recording intraday snapshots to a local SQLite database.
+*   **Custom Black-Scholes Engine:** A bespoke TypeScript Black-Scholes-Merton engine calculates Greeks natively on the server for markets that don't supply them (like the NSE).
+*   **Interactive Methodology Documentation:** Fully transparent breakdown of all quantitative formulas, volatility smile modeling, and Greek derivations.
 
-By dynamically calculating the true realized volatility of an asset and comparing it to live option prices, this platform proves whether a structural premium exists for option sellers in these environments.
+## Tech Stack
 
----
+| Layer | Technology |
+| :--- | :--- |
+| **Frontend** | Next.js 14 (App Router), React, Tailwind CSS, Plotly.js, Recharts |
+| **Backend** | Next.js API Routes, NextAuth.js |
+| **Database** | SQLite, Prisma ORM |
+| **Data Fetching** | `yahoo-finance2`, `stock-nse-india` |
+| **Deployment** | Docker, Docker Compose |
 
-## 🚀 Key Features Explained
+## Architecture
 
-### 1. The Options Screener & 3D Volatility Surface
-The core of the platform. Enter any US ticker (e.g., `AAPL`) or Indian ticker (e.g., `RELIANCE.NS`) to fetch a live options chain.
-- **Data Table:** Instantly calculates the Black-Scholes Greeks (Delta, Gamma, Theta, Vega) and the exact Variance Risk Premium for every strike.
-- **3D Volatility Surface:** Toggle the 3D view to visualize the "Volatility Smile" across Strike Prices and Days to Expiry. This interactive Plotly graph allows you to instantly spot localized mispricings where IV spikes unnaturally.
+```mermaid
+flowchart LR
+    A[MarketData.app / NSE India] -->|Live Option Chains| B(Next.js API Routes)
+    C[Yahoo Finance] -->|Historical Close| B
+    B -->|Logs Snapshots| D[(SQLite / Prisma)]
+    B -->|Calculates Greeks & VRP| E[React Frontend]
+    E -->|Renders 3D Surface & Analytics| F((End User))
+```
 
-### 2. Live Surface Analytics
-As you query different tickers, the backend silently logs the aggregate market state (Average IV, Average VRP, Put-Call Ratio) to a local SQLite database.
-- Navigate to the **Surface Analytics** tab to view real-time charts tracking how the Volatility Skew and overall VRP trends evolve throughout the trading day.
+## Screenshots
 
-### 3. Portfolio Risk Engine (Value at Risk)
-Simulate a hypothetical options portfolio based on current live data.
-- The **Portfolio Risk** tab aggregates the net Greeks of your simulated positions.
-- It calculates an institutional **99% Value at Risk (VaR)** approximation, displaying the maximum expected loss over a 24-hour period based on your Delta and Gamma exposure.
+> **Note to self:** Add screenshots here before final portfolio submission!
+> 
+> *Suggested images:*
+> 1. `![Screener Data Table](/public/screenshots/us_screener.png)`
+> 2. `![3D Volatility Surface](/public/screenshots/3d_surface.png)`
+> 3. `![Portfolio VaR Engine](/public/screenshots/portfolio_risk.png)`
 
-### 4. Bespoke Mathematics Engine
-Unlike basic screeners, VRP Global calculates its own math for markets that lack native Greeks (like the NSE).
-- Integrates `yahoo-finance2` to dynamically fetch closing prices and calculate rolling True Realized Volatility.
-- A custom TypeScript Black-Scholes-Merton engine calculates all Greeks on the server-side before serving them to the client.
-
----
-
-## 🛠 Installation & Setup
+## Getting Started
 
 ### Prerequisites
-*   Node.js 18+
-*   pnpm (recommended) or npm
+*   Docker & Docker Compose (or Node.js 18+ and pnpm)
 
-### Quick Start
+### Local Setup (Without Docker)
 
 1.  **Clone the repository:**
     ```bash
@@ -63,34 +71,67 @@ Unlike basic screeners, VRP Global calculates its own math for markets that lack
     pnpm install
     ```
 
-3.  **Configure API Keys:**
-    Create a `.env.local` file in the `web-app` directory and add your MarketData.app token (used for US Equities):
-    ```env
-    MARKETDATA_API_TOKEN=your_free_token_here
-    ```
+3.  **Environment Variables:**
+    Copy `.env.example` to `.env.local` and configure your variables (see table below).
 
-4.  **Initialize the Database:**
-    Push the Prisma schema to create the local SQLite database for analytics tracking:
+4.  **Database Migration:**
     ```bash
     npx prisma db push
     ```
 
-5.  **Start the Server:**
+5.  **Run Development Server:**
     ```bash
     pnpm dev
     ```
 
-Navigate to `http://localhost:3000/screener` to begin!
+### Local Setup (With Docker)
+```bash
+docker-compose up --build
+```
+*Note: The Docker setup relies on named volumes for `node_modules` and runs the dev server on port `3001`.*
 
-![NSE Screener](/public/screenshots/nse_screener.png)
+## Environment Variables
 
----
+| Variable | Description | Required |
+| :--- | :--- | :--- |
+| `NEXT_PUBLIC_APP_URL` | The base URL of the application (e.g., `http://localhost:3000`) | Yes |
+| `MARKETDATA_API_TOKEN` | API key for MarketData.app (US Equities). Leave blank for free tier limits. | No |
+| `USE_MOCK_DATA` | Set to `true` to bypass live API calls and use simulated option chains. | No |
+| `NEXTAUTH_SECRET` | Secret key for JWT encryption. | Yes (in prod) |
 
-## 📡 API Routing Architecture
+## Data Sources
 
-To keep the application highly scalable and free to run:
-1.  **US Equities (`AAPL`, `SPY`):** Routed to MarketData.app. If rate limits are hit, it gracefully falls back to simulated VRP calculations.
-2.  **Indian Equities (`RELIANCE.NS`):** Routed natively to the National Stock Exchange of India (NSE). The backend automatically handles bot-protection session cookies.
+VRP Global currently aggregates data from multiple providers:
+*   **US Equities:** MarketData.app (delayed live options data for free accounts).
+*   **Indian Equities:** Native routing to the National Stock Exchange of India (NSE) via the `stock-nse-india` package.
+*   **Historical Data:** `yahoo-finance2` for calculating True Realized Volatility.
 
-## 📐 Methodology
-For a complete breakdown of the Black-Scholes formulas, Greek derivations, and VRP heatmap thresholds, please see the **[docs/MATHEMATICS.md](docs/MATHEMATICS.md)** file.
+*Note: The `breezeconnect` package is installed in `package.json`, indicating that an integration with ICICI Breeze for live Indian market data execution is planned, but it is not currently implemented in the codebase.*
+
+## Known Limitations / Roadmap
+
+As this is a rapidly evolving portfolio project, the following areas are currently in progress or require attention:
+
+*   **Insecure Authentication:** The current NextAuth implementation uses a mock credentials provider that accepts *any* password and creates users on the fly without secure password hashing or validation. **Do not deploy this authentication flow to a public production environment.**
+*   **Broker Integration:** Planning to implement live execution via ICICI Breeze API (SDK installed, but wiring is pending).
+*   **Data Latency:** The NSE India fallback requires session cookie negotiation on the first request, which can introduce a ~10-second delay on cold starts.
+*   **Limited Historical DB Storage:** Currently logging snapshots to SQLite. For production-scale historical backtesting, this must be migrated to PostgreSQL or TimescaleDB.
+
+## Project Structure
+
+```text
+src/
+├── app/               # Next.js App Router pages (Screener, Portfolio, Analytics, etc.)
+├── features/          # Domain-specific React components and views
+├── lib/               # Utility libraries (Prisma client instance)
+├── shared/            # Reusable UI components, mock data, and core mathematics logic
+└── types/             # Global TypeScript definitions
+prisma/                # Database schema and SQLite database
+public/                # Static assets and screenshots
+docs/                  # Extended documentation (MATHEMATICS.md)
+```
+
+## License & Author
+
+*   **License:** MIT
+*   **Author:** [creeedd89](https://github.com/creeedd89)
