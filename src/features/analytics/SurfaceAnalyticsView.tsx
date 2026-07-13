@@ -31,6 +31,35 @@ interface Contract {
   vrp: number;
 }
 
+interface ChainResponse {
+  data?: Contract[];
+  error?: string;
+}
+
+interface AnalyticsResponse {
+  data?: Snapshot[];
+  error?: string;
+}
+
+const snapshotTimeFormatter = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `Expected a JSON response but received ${contentType || 'an unknown content type'}`,
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export default function SurfaceAnalyticsView() {
   const [symbol, setSymbol] = useState('RELIANCE.NS');
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -39,37 +68,52 @@ export default function SurfaceAnalyticsView() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
-        const chainRes = await fetch(`/api/option-chain?symbol=${symbol}`);
-        const chainData = await chainRes.json();
+        const chainRes = await fetch(`/api/option-chain?symbol=${symbol}`, {
+          signal: controller.signal,
+        });
+        const chainData = await readJsonResponse<ChainResponse>(chainRes);
 
-        if (chainRes.status !== 200) {
-          setError(chainData.error || 'Failed to fetch analytics');
-        } else {
-          if (chainData.data) setChain(chainData.data);
+        if (!chainRes.ok) {
+          throw new Error(chainData.error || 'Failed to fetch option-chain analytics');
         }
-      } catch {
-        setError('Failed to fetch data. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    }
 
-    async function fetchHistory() {
-      try {
-        const res = await fetch(`/api/history?symbol=${symbol}`);
-        const data = await res.json();
-        if (data.snapshots) setSnapshots(data.snapshots);
+        setChain(chainData.data || []);
+
+        // The option-chain request writes the current snapshot. Fetch its
+        // persisted history afterwards so the trend includes that snapshot.
+        const analyticsRes = await fetch(`/api/analytics?symbol=${symbol}`, {
+          signal: controller.signal,
+        });
+        const analyticsData = await readJsonResponse<AnalyticsResponse>(analyticsRes);
+
+        if (!analyticsRes.ok) {
+          throw new Error(analyticsData.error || 'Failed to fetch historical analytics');
+        }
+
+        setSnapshots(analyticsData.data || []);
       } catch (err) {
-        console.error(err);
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setChain([]);
+        setSnapshots([]);
+        setError(err instanceof Error ? err.message : 'Failed to fetch data. Please try again.');
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
     fetchData();
-    fetchHistory();
+    const refreshId = window.setInterval(fetchData, 60_000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshId);
+    };
   }, [symbol]);
 
   interface SkewDataPoint {
@@ -103,7 +147,7 @@ export default function SurfaceAnalyticsView() {
 
   // Prepare Snapshot Trends Data
   const trendData = snapshots.map((s) => ({
-    time: new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    time: snapshotTimeFormatter.format(new Date(s.timestamp)),
     avgIV: parseFloat(s.avgIV.toFixed(2)),
     avgVRP: parseFloat(s.avgVRP.toFixed(2)),
     pcr: parseFloat(s.putCallRatio.toFixed(2)),
@@ -111,6 +155,10 @@ export default function SurfaceAnalyticsView() {
 
   const latestSnap = snapshots[snapshots.length - 1];
   const prevSnap = snapshots[snapshots.length - 2];
+  const recordedRange =
+    snapshots.length > 0
+      ? `${snapshotTimeFormatter.format(new Date(snapshots[0].timestamp))}–${snapshotTimeFormatter.format(new Date(latestSnap!.timestamp))} IST`
+      : 'No samples recorded yet';
 
   const vrpChange = latestSnap && prevSnap ? latestSnap.avgVRP - prevSnap.avgVRP : 0;
   const pcrChange = latestSnap && prevSnap ? latestSnap.putCallRatio - prevSnap.putCallRatio : 0;
@@ -204,7 +252,12 @@ export default function SurfaceAnalyticsView() {
 
             {/* VRP Trend */}
             <div className="rounded-xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
-              <h3 className="mb-4 text-lg font-bold text-white">VRP Intraday Trend</h3>
+              <div className="mb-4">
+                <h3 className="text-lg font-bold text-white">VRP Intraday Trend</h3>
+                <p className="text-sm text-slate-400">
+                  {snapshots.length} samples · {recordedRange}
+                </p>
+              </div>
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>

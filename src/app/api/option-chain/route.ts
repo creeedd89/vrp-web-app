@@ -3,10 +3,21 @@ import { generateOptionsChain, OptionContract } from '@/shared/data/mockOptionsC
 import { NseIndia, type EquityOptionChainItem, type OptionsDetails } from 'stock-nse-india';
 import { calculateRealizedVol } from '@/shared/utils/realizedVol';
 import { calculateGreeks } from '@/shared/utils/blackScholes';
+import { normalizeMarketSymbol } from '@/shared/utils/marketSymbol';
 import { prisma } from '@/lib/prisma';
+
+const snapshotLastSavedAt: Record<string, number> = {};
+const SNAPSHOT_INTERVAL_MS = 60_000;
 
 async function saveSnapshot(symbol: string, contracts: OptionContract[]) {
   if (contracts.length === 0) return;
+
+  const now = Date.now();
+  if (now - (snapshotLastSavedAt[symbol] || 0) < SNAPSHOT_INTERVAL_MS) return;
+
+  // Reserve the interval before the database write so concurrent requests do
+  // not create duplicate points for the same minute.
+  snapshotLastSavedAt[symbol] = now;
 
   // Calculate average IV and average VRP (excluding zero values)
   let validContracts = contracts.filter((c) => c.impliedVol > 0);
@@ -33,6 +44,7 @@ async function saveSnapshot(symbol: string, contracts: OptionContract[]) {
       },
     });
   } catch (error) {
+    delete snapshotLastSavedAt[symbol];
     console.error('[Snapshot Error]:', error);
   }
 }
@@ -217,7 +229,7 @@ async function fetchNSEData(symbol: string, realizedVol: number): Promise<Option
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const symbol = (searchParams.get('symbol') || 'SPY').toUpperCase();
+  const symbol = normalizeMarketSymbol(searchParams.get('symbol'));
 
   // Check if we should use mock data (e.g., local dev without API key)
   if (process.env.USE_MOCK_DATA === 'true') {
@@ -233,10 +245,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const realizedVol = await calculateRealizedVol(symbol, 30);
-
     // Branch for Indian Equities (.NS)
     if (symbol.endsWith('.NS')) {
+      const realizedVol = await calculateRealizedVol(symbol, 30);
       try {
         const contracts = await fetchNSEData(symbol, realizedVol);
         cache[symbol] = { data: contracts, timestamp: Date.now(), source: 'nse' };
@@ -255,10 +266,20 @@ export async function GET(request: Request) {
 
     // Branch for US Equities (MarketData.app)
     const apiKey = process.env.MARKETDATA_API_TOKEN;
-    const headers: HeadersInit = {};
-    if (apiKey && apiKey.trim().length > 0) {
-      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    if (!apiKey || apiKey.trim().length === 0) {
+      const fallback = getMockFallback(symbol);
+      cache[symbol] = { data: fallback, timestamp: Date.now(), source: 'mock' };
+      await saveSnapshot(symbol, fallback);
+      return NextResponse.json({
+        data: fallback,
+        source: 'mock',
+        warning:
+          'Live US options require MARKETDATA_API_TOKEN. Showing simulated data until a token is configured.',
+      });
     }
+
+    const headers: HeadersInit = { Authorization: `Bearer ${apiKey.trim()}` };
+    const realizedVol = await calculateRealizedVol(symbol, 30);
 
     const response = await fetch(
       `https://api.marketdata.app/v1/options/chain/${encodeURIComponent(symbol)}`,
