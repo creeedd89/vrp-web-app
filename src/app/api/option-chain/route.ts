@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { generateOptionsChain, OptionContract } from '@/shared/data/mockOptionsChain';
-import { NseIndia } from 'stock-nse-india';
+import { NseIndia, type EquityOptionChainItem, type OptionsDetails } from 'stock-nse-india';
 import { calculateRealizedVol } from '@/shared/utils/realizedVol';
 import { calculateGreeks } from '@/shared/utils/blackScholes';
 import { prisma } from '@/lib/prisma';
@@ -43,6 +43,24 @@ const nseIndia = new NseIndia();
 const cache: Record<string, { data: OptionContract[]; timestamp: number; source: string }> = {};
 const CACHE_TTL_MS = 10_000; // 10 seconds
 
+type NseOptionRecord = EquityOptionChainItem & {
+  CE?: OptionsDetails;
+  PE?: OptionsDetails;
+};
+
+type NseOptionLeg = {
+  optionType: string | null;
+  expiryDate: string | null;
+  strikePrice: string | number;
+  underlyingValue: number;
+  impliedVolatility?: number;
+  bidprice?: number;
+  askPrice?: number;
+  lastPrice: number;
+  totalTradedVolume: number;
+  openInterest: number;
+};
+
 function getMockFallback(symbol: string) {
   // Generate mock data around a realistic price for the given symbol
   const mockPrices: Record<string, number> = {
@@ -79,15 +97,18 @@ async function fetchNSEData(symbol: string, realizedVol: number): Promise<Option
 
     const contracts: OptionContract[] = [];
 
-    optionChain.data.forEach((record: Record<string, unknown>) => {
+    optionChain.data.forEach((record) => {
+      const optionRecord = record as NseOptionRecord;
       // Process Call
-      if (record.optionType === 'CE' || record.CE) {
-        const ce = record.CE || record; // Sometimes it's nested, sometimes flat
+      if (optionRecord.optionType === 'CE' || optionRecord.CE) {
+        const ce = (optionRecord.CE || optionRecord) as NseOptionLeg; // Sometimes it's nested, sometimes flat
         if (ce.optionType !== 'CE') return; // Skip if flat but not CE
+        if (!ce.expiryDate) return;
 
         const expDate = new Date(ce.expiryDate);
         const now = new Date();
-        const diffTime = Math.abs(expDate.getTime() - now.getTime());
+        const diffTime = expDate.getTime() - now.getTime();
+        if (!Number.isFinite(diffTime) || diffTime <= 0) return;
         const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         const strike =
@@ -133,13 +154,15 @@ async function fetchNSEData(symbol: string, realizedVol: number): Promise<Option
       }
 
       // Process Put
-      if (record.optionType === 'PE' || record.PE) {
-        const pe = record.PE || record;
+      if (optionRecord.optionType === 'PE' || optionRecord.PE) {
+        const pe = (optionRecord.PE || optionRecord) as NseOptionLeg;
         if (pe.optionType !== 'PE') return;
+        if (!pe.expiryDate) return;
 
         const expDate = new Date(pe.expiryDate);
         const now = new Date();
-        const diffTime = Math.abs(pe.expiryDate ? expDate.getTime() - now.getTime() : 0);
+        const diffTime = expDate.getTime() - now.getTime();
+        if (!Number.isFinite(diffTime) || diffTime <= 0) return;
         const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         const strike =
