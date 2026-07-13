@@ -1,8 +1,8 @@
 # VRP Global — Variance Risk Premium Analytics
 
-VRP Global is an advanced options analytics web application designed for analyzing the **Variance Risk Premium (VRP)** of equities across global markets. 
+VRP Global is an advanced, institutional-grade options analytics web application designed for analyzing the **Variance Risk Premium (VRP)** of equities across global markets. 
 
-The screener allows traders to dynamically fetch live option chain data, calculate realized vs. implied volatility, and identify options that are potentially mispriced based on historical variance.
+The platform allows traders to dynamically fetch live option chain data, calculate realized vs. implied volatility, and identify options that are potentially mispriced based on historical variance.
 
 ## 🎯 The Core Problem Addressed
 
@@ -12,17 +12,18 @@ This project was built to empirically answer a fundamental quantitative finance 
 *   **Realized Volatility (RV)** is the actual historical movement of the underlying asset.
 *   **Variance Risk Premium (VRP)** is the spread between the two (`VRP = IV - RV`).
 
-In highly retail-driven markets like the National Stock Exchange of India (NSE), there is often massive speculative demand for options, which artificially inflates option prices and, consequently, Implied Volatility. By comparing the live VRP of NSE equities (e.g., `RELIANCE.NS`) side-by-side with US equities (e.g., `AAPL`), this tool visually and mathematically proves whether a structural, positive premium exists for sellers in these retail-heavy environments.
-![US Screener](/public/screenshots/us_screener.png)
-![NSE Screener](/public/screenshots/nse_screener.png)
+In highly retail-driven markets like the National Stock Exchange of India (NSE), massive speculative demand for options can artificially inflate option prices and Implied Volatility. By comparing the live VRP of NSE equities side-by-side with US equities, this tool visually and mathematically proves whether a structural, positive premium exists for sellers in these environments.
 
-## 🌟 Key Features
+## 🌟 Institutional-Grade Features
 
-*   **Global Options Data:** Supports both US Equities (via MarketData.app) and Indian Equities (via NSE India natively).
-*   **Intelligent Routing:** The custom backend API automatically detects the exchange based on the ticker symbol (e.g., `.NS` suffix for India) and routes the request to the appropriate data provider.
-*   **Live Data Badges:** The UI actively reflects the real-time status of your data, distinguishing between `"Live Data"`, `"NSE Live Data"`, and `"Simulated Data"` (fallback).
-*   **Advanced Analytics:** Calculates and displays Implied Volatility, Realized Volatility, Delta, Gamma, Theta, Vega, and the VRP spread.
-*   **Graceful Degradation:** If an API rate limit is hit or a network error occurs, the system smoothly transitions to localized simulated data to prevent the UI from crashing.
+*   **True Mathematics Engine:**
+    *   **Dynamic Realized Volatility:** Integrates `yahoo-finance2` to dynamically fetch historical daily closing prices, calculating a rolling True Realized Volatility (annualized Close-to-Close log returns standard deviation).
+    *   **Server-Side Black-Scholes:** For exchanges like the NSE that do not natively supply Greeks, a bespoke TypeScript Black-Scholes-Merton engine calculates and injects Delta, Gamma, Theta, and Vega into the live data pipeline.
+*   **Global Options Data Routing:** Automatically detects the exchange based on the ticker symbol (e.g., `.NS` suffix for India) and routes to MarketData.app (US) or natively to NSE India.
+*   **Surface Analytics & DB Logging:** Silently logs aggregate market state snapshots (Average IV, Average VRP, Put-Call Ratio) to a SQLite database. The **Surface Analytics** dashboard charts these intraday developments alongside Volatility Skew.
+*   **Volatility Surface 3D UI:** Integrates `plotly.js` for advanced quantitative visualization. A 3D topological plot maps Implied Volatility against Strike and Days to Expiry, allowing traders to instantly spot localized mispricings.
+*   **Portfolio Risk Engine:** Simulates hypothetical option portfolios in real-time. Calculates aggregated Portfolio Net Delta, Gamma, Vega, Theta, and an institutional **99% Value at Risk (VaR)** approximation based on a Delta-Gamma model.
+*   **Graceful Degradation:** Transitions smoothly to localized simulated data if an API rate limit is hit or a network error occurs.
 
 ## 🚀 Getting Started
 
@@ -50,12 +51,17 @@ In highly retail-driven markets like the National Stock Exchange of India (NSE),
     MARKETDATA_API_TOKEN=your_free_token_here
     ```
 
-4.  Start the development server:
+4.  Setup Database:
+    ```bash
+    npx prisma db push
+    ```
+
+5.  Start the development server:
     ```bash
     pnpm dev
     ```
 
-5.  Open `http://localhost:3002/screener` in your browser.
+6.  Open `http://localhost:3002/screener` in your browser.
 
 ## 📡 API Routing Assumptions
 
@@ -64,18 +70,17 @@ To keep the application highly scalable without running up massive API bills, th
 1.  **US Equities (e.g., `AAPL`, `SPY`):**
     *   Requests are routed to **MarketData.app** via the `/api/option-chain` route.
     *   MarketData provides delayed live options data for free accounts, with a hard limit on request frequency.
-    *   If the request times out or is rejected (e.g., 400/404), the backend falls back to simulated VRP calculations.
 
 2.  **Indian Equities (e.g., `RELIANCE.NS`, `TCS.NS`):**
     *   Requests are routed natively to the **National Stock Exchange of India (NSE)** using the `stock-nse-india` package.
-    *   *Note:* The NSE applies anti-bot protections. The backend will automatically negotiate session cookies on the very first request. This first request may take up to 15 seconds to resolve, but all subsequent requests are cached and resolve rapidly.
-    *   Requires the `.NS` suffix to correctly route.
+    *   *Note:* The NSE applies anti-bot protections. The backend will automatically negotiate session cookies on the very first request.
 
 ## 🛠 Tech Stack
 
-*   **Frontend:** Next.js 14 (App Router), React, Tailwind CSS
+*   **Frontend:** Next.js 14 (App Router), React, Tailwind CSS, Plotly.js, Recharts
 *   **Backend:** Next.js API Routes (Serverless)
-*   **Data Providers:** MarketData.app (US), NSE India (IN)
+*   **Database:** SQLite via Prisma ORM
+*   **Data Providers:** MarketData.app (US), NSE India (IN), Yahoo Finance (Historical)
 *   **Package Management:** pnpm
 
 ## 📐 Mathematics & Methodology

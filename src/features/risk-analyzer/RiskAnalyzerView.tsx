@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import {
   BarChart,
   Bar,
@@ -10,34 +11,161 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { ShieldAlert, AlertTriangle, Clock, TrendingDown } from "lucide-react";
+import { AlertTriangle, Clock, TrendingDown, Search, Loader2, Zap } from "lucide-react";
 import TopBar from "@/shared/components/TopBar";
 import ChartCard from "@/shared/components/ChartCard";
 import {
-  returnDistribution,
   historicalDrawdowns,
   currentRiskFactors,
+  returnDistribution as mockReturnDistribution,
 } from "@/shared/data/stocks";
+import { calculateCrashProbability, generateReturnDistribution } from "@/shared/utils/riskMath";
 
 export default function RiskAnalyzerView() {
-  const crashProbability = 14.2;
-  const gaugeAngle = (crashProbability / 100) * 180;
+  const [ticker, setTicker] = useState("AAPL");
+  const [searchInput, setSearchInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [impliedVol, setImpliedVol] = useState<number | null>(null);
+  const [dataSource, setDataSource] = useState<string>("—");
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchOptionData = useCallback(async (symbol: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/option-chain?symbol=${encodeURIComponent(symbol)}`);
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      const json = await response.json();
+
+      // Our API returns { data: OptionContract[], source: string }
+      const contracts = json.data;
+      const source = json.source || "unknown";
+      setDataSource(source);
+
+      if (!contracts || contracts.length === 0) {
+        throw new Error("No options contracts returned");
+      }
+
+      // Calculate ATM implied vol:
+      // Find all CALL contracts with the shortest expiry, then pick the one
+      // closest to having delta ~0.5 (i.e. strike closest to underlying).
+      // Since we don't have an explicit currentPrice, we estimate it as the
+      // midpoint between the highest and lowest strike of the nearest expiry.
+      const minDTE = Math.min(...contracts.map((c: any) => c.daysToExpiry));
+      const nearTermContracts = contracts.filter((c: any) => c.daysToExpiry === minDTE);
+
+      // For ATM estimation, find the strike where calls and puts have similar prices
+      // or just pick the strike with the highest open interest (liquid ATM strike)
+      const calls = nearTermContracts.filter((c: any) => c.type === "CALL");
+      const puts = nearTermContracts.filter((c: any) => c.type === "PUT");
+
+      let atmIV: number | null = null;
+
+      if (calls.length > 0) {
+        // Sort by OI descending — highest OI is usually near ATM
+        const sorted = [...calls].sort((a: any, b: any) => (b.openInterest || 0) - (a.openInterest || 0));
+        // Take the top-OI contract's IV, or average a few near-ATM
+        const topCalls = sorted.slice(0, 3);
+        const avgIV = topCalls.reduce((sum: number, c: any) => sum + (c.impliedVol || 0), 0) / topCalls.length;
+        atmIV = avgIV;
+      }
+
+      if (atmIV === null || atmIV <= 0) {
+        // Fallback: average IV of all contracts
+        const allIVs = contracts.map((c: any) => c.impliedVol || 0).filter((v: number) => v > 0);
+        atmIV = allIVs.length > 0 ? allIVs.reduce((s: number, v: number) => s + v, 0) / allIVs.length : 15;
+      }
+
+      setImpliedVol(atmIV);
+      setTicker(symbol);
+    } catch (err: any) {
+      console.error("Risk Analyzer fetch error:", err);
+      setError(err.message || "Could not load data");
+      setImpliedVol(null);
+      setDataSource("fallback");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchOptionData("AAPL");
+  }, [fetchOptionData]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchInput.trim()) {
+      fetchOptionData(searchInput.trim().toUpperCase());
+    }
+  };
+
+  // Calculations based on live IV
+  const displayIV = impliedVol ?? 15; // default if null
+  const crashProbability = calculateCrashProbability(displayIV, 30, 0.10, 0.05);
+  const gaugeAngle = Math.min((crashProbability / 100) * 180, 180);
+
+  const distData = impliedVol !== null
+    ? generateReturnDistribution(displayIV, 30)
+    : mockReturnDistribution;
+
+  const riskLabel = crashProbability > 25 ? "High Risk" : crashProbability > 10 ? "Moderate Risk" : "Low Risk";
+  const riskBadgeClass = crashProbability > 25 ? "badge-error" : crashProbability > 10 ? "badge-warning" : "badge-success";
 
   return (
     <div>
       <TopBar
         title="Risk Analyzer"
-        subtitle="Probability analysis of stock drawdowns"
+        subtitle="Live probability analysis using Black-Scholes risk-neutral distributions"
+        action={
+          <form onSubmit={handleSearch} className="relative hidden sm:block">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2"
+              style={{ color: "var(--text-muted)" }}
+            />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Ticker (e.g. RELIANCE.NS)"
+              className="input-field pl-9 w-[220px]"
+            />
+          </form>
+        }
       />
 
       <div className="px-8 py-6 space-y-6">
+
+        {/* Header with Ticker Info */}
+        <div className="flex items-center justify-between animate-fade-in-up">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-3" style={{ color: "var(--text-primary)" }}>
+              {ticker}
+              {dataSource && dataSource !== "fallback" && (
+                <span className="badge badge-success text-[10px] flex items-center gap-1">
+                  <Zap size={10} />
+                  {dataSource === "live" ? "Live US" : dataSource === "nse" ? "Live NSE" : dataSource === "mock" ? "Simulated" : dataSource}
+                </span>
+              )}
+            </h2>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              ATM Implied Volatility: {isLoading ? "Loading..." : `${displayIV.toFixed(2)}%`}
+              {error && <span className="text-amber-500 ml-2">({error})</span>}
+            </p>
+          </div>
+          {isLoading && <Loader2 className="animate-spin text-cyan-500" size={24} />}
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Crash Probability Gauge */}
           <div className="glass-card p-6 flex flex-col items-center justify-center animate-fade-in-up">
-            <h3 className="text-sm font-semibold mb-6" style={{ color: "var(--text-primary)" }}>
-              Crash Probability (&gt;10% Drop)
+            <h3 className="text-sm font-semibold mb-6 text-center" style={{ color: "var(--text-primary)" }}>
+              Crash Probability (&gt;10% Drop in 30 Days)
             </h3>
-            <div className="gauge-container" style={{ width: 200, height: 120 }}>
+            <div className="gauge-container relative" style={{ width: 200, height: 120 }}>
               <svg viewBox="0 0 200 120" className="w-full h-full">
                 {/* Background arc */}
                 <path
@@ -83,26 +211,27 @@ export default function RiskAnalyzerView() {
                   stroke="var(--accent-cyan)"
                   strokeWidth="3"
                   strokeLinecap="round"
+                  className="transition-all duration-1000 ease-out"
                 />
                 <circle cx="100" cy="100" r="6" fill="var(--accent-cyan)" />
               </svg>
             </div>
             <div className="text-3xl font-bold mt-2" style={{ color: "var(--accent-cyan)" }}>
-              {crashProbability}%
+              {isLoading ? "..." : `${crashProbability.toFixed(1)}%`}
             </div>
-            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-              Based on current market conditions
+            <div className="text-xs mt-1 text-center px-4" style={{ color: "var(--text-muted)" }}>
+              Calculated via N(−d₂) from live ATM Implied Volatility
             </div>
-            <span className="badge badge-warning mt-3">
+            <span className={`badge mt-3 ${riskBadgeClass}`}>
               <AlertTriangle size={12} />
-              Moderate Risk
+              {riskLabel}
             </span>
           </div>
 
           {/* Risk Factors */}
           <div className="lg:col-span-2 glass-card p-6 animate-fade-in-up-delay-1">
             <h3 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-              Current Risk Factors
+              Current Market Risk Factors
             </h3>
             <div className="space-y-3">
               {currentRiskFactors.map((factor) => (
@@ -165,31 +294,31 @@ export default function RiskAnalyzerView() {
 
         {/* Return Distribution */}
         <ChartCard
-          title="Return Distribution"
-          subtitle="Probability of returns in each range — tails highlighted"
+          title="Log-Normal Return Distribution"
+          subtitle={`30-day forward probability distribution derived from ${displayIV.toFixed(1)}% IV`}
           timeRanges={[]}
           className="animate-fade-in-up-delay-2"
         >
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={returnDistribution}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="range" tick={{ fill: "#64748B", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />
+            <BarChart data={distData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+              <XAxis dataKey="range" tick={{ fill: "var(--text-muted)", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />
               <Tooltip
                 contentStyle={{
-                  background: "rgba(17, 28, 50, 0.95)",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
                   borderRadius: "12px",
-                  color: "#F1F5F9",
+                  color: "var(--text-primary)",
                   fontSize: "13px",
                 }}
-                formatter={(value: number) => [`${value}%`, "Probability"]}
+                formatter={(value: any) => [`${Number(value)}%`, "Probability"]}
               />
-              <Bar dataKey="probability" radius={[6, 6, 0, 0]}>
-                {returnDistribution.map((entry, index) => (
+              <Bar dataKey="probability" radius={[6, 6, 0, 0]} animationDuration={1500}>
+                {distData.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
-                    fill={entry.isTail ? "#F43F5E" : "rgba(6, 182, 212, 0.5)"}
+                    fill={entry.isTail ? "var(--negative)" : "rgba(6, 182, 212, 0.5)"}
                   />
                 ))}
               </Bar>
@@ -208,8 +337,8 @@ export default function RiskAnalyzerView() {
                 key={event.date}
                 className="rounded-xl p-4 border"
                 style={{
-                  background: "rgba(244, 63, 94, 0.03)",
-                  borderColor: "rgba(244, 63, 94, 0.1)",
+                  background: "var(--negative-bg)",
+                  borderColor: "var(--negative-bg)",
                 }}
               >
                 <div className="flex items-center justify-between mb-2">

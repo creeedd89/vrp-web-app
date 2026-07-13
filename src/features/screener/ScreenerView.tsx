@@ -8,6 +8,7 @@ import { globalMarkets } from "@/shared/data/markets";
 import { exportToCSV } from "@/shared/utils/exportToCSV";
 import WatchlistStar from "@/shared/components/WatchlistStar";
 import { useSession } from "next-auth/react";
+import VolatilitySurface3D from "@/shared/components/VolatilitySurface3D";
 
 export default function ScreenerView() {
   const { data: session } = useSession();
@@ -17,8 +18,9 @@ export default function ScreenerView() {
   const [baseChain, setBaseChain] = useState<OptionContract[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dataSource, setDataSource] = useState<"live" | "mock" | null>(null);
+  const [dataSource, setDataSource] = useState<"live" | "mock" | "nse" | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "3d">("table");
 
   useEffect(() => {
     if (session?.user) {
@@ -168,6 +170,21 @@ export default function ScreenerView() {
               <option value="30">30 Days (Monthly)</option>
               <option value="90">90 Days (Quarterly)</option>
             </select>
+            
+            <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 ml-4">
+              <button 
+                className={`px-3 py-1 rounded text-sm ${viewMode === 'table' ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-white'}`}
+                onClick={() => setViewMode('table')}
+              >
+                Data Table
+              </button>
+              <button 
+                className={`px-3 py-1 rounded text-sm ${viewMode === '3d' ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-white'}`}
+                onClick={() => setViewMode('3d')}
+              >
+                3D Surface
+              </button>
+            </div>
           </div>
 
           <div className="flex gap-2">
@@ -186,8 +203,9 @@ export default function ScreenerView() {
           </div>
         </div>
 
-        {/* Data Grid */}
+        {/* Data Grid / 3D Surface */}
         <div className="glass-card flex-1 overflow-hidden flex flex-col animate-fade-in-up">
+          {viewMode === "table" ? (
           <div className="overflow-auto flex-1">
             <table className="data-table w-full relative">
               <thead className="sticky top-0 z-10" style={{ background: "var(--bg-primary)" }}>
@@ -284,6 +302,15 @@ export default function ScreenerView() {
               </div>
             )}
           </div>
+          ) : (
+            <div className="flex-1 p-4 bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center">
+              {filteredChain.length > 0 ? (
+                <VolatilitySurface3D data={filteredChain} type={filterType === "PUT" ? "PUT" : "CALL"} />
+              ) : (
+                <div className="text-slate-500">No data available for 3D surface</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

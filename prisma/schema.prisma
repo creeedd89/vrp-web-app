@@ -44,6 +44,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   watchlists    Watchlist[]
+  portfolios    Portfolio[]
 }
 
 model VerificationToken {
@@ -63,4 +64,37 @@ model Watchlist {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, contractId])
+}
+
+model ChainSnapshot {
+  id        String   @id @default(cuid())
+  symbol    String
+  timestamp DateTime @default(now())
+  avgIV     Float
+  avgVRP    Float
+  putCallRatio Float
+
+  @@index([symbol, timestamp])
+}
+
+model Portfolio {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions Position[]
+}
+
+model Position {
+  id          String    @id @default(cuid())
+  portfolioId String
+  symbol      String    
+  contractId  String    
+  type        String    
+  quantity    Int       
+  entryPrice  Float
+
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 }

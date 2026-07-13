@@ -10,6 +10,9 @@ import {
   Newspaper,
   TrendingUp,
   ListFilter,
+  BookOpen,
+  Activity,
+  Briefcase,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -18,8 +21,11 @@ const navItems = [
   { href: "/calculator", label: "VRP Calculator", icon: Calculator },
   { href: "/markets", label: "Global Markets", icon: Globe },
   { href: "/risk-analyzer", label: "Risk Analyzer", icon: ShieldAlert },
+  { href: "/portfolio", label: "Portfolio Risk", icon: Briefcase },
   { href: "/screener", label: "Options Screener", icon: ListFilter },
+  { href: "/analytics", label: "Surface Analytics", icon: Activity },
   { href: "/advisory", label: "Advisory", icon: Newspaper },
+  { href: "/methodology", label: "Math & Methodology", icon: BookOpen },
 ];
 
 export default function Sidebar() {

@@ -1,6 +1,37 @@
 import { NextResponse } from "next/server";
 import { generateOptionsChain, OptionContract } from "@/shared/data/mockOptionsChain";
 import { NseIndia } from "stock-nse-india";
+import { calculateRealizedVol } from "@/shared/utils/realizedVol";
+import { calculateGreeks } from "@/shared/utils/blackScholes";
+import { prisma } from "@/lib/prisma";
+
+async function saveSnapshot(symbol: string, contracts: OptionContract[]) {
+  if (contracts.length === 0) return;
+  
+  // Calculate average IV and average VRP (excluding zero values)
+  const validContracts = contracts.filter((c) => c.impliedVol > 0);
+  if (validContracts.length === 0) return;
+
+  const avgIV = validContracts.reduce((sum, c) => sum + c.impliedVol, 0) / validContracts.length;
+  const avgVRP = validContracts.reduce((sum, c) => sum + c.vrp, 0) / validContracts.length;
+  
+  const calls = contracts.filter(c => c.type === "CALL").reduce((sum, c) => sum + (c.volume || 0), 0);
+  const puts = contracts.filter(c => c.type === "PUT").reduce((sum, c) => sum + (c.volume || 0), 0);
+  const putCallRatio = calls > 0 ? puts / calls : 1;
+
+  try {
+    await prisma.chainSnapshot.create({
+      data: {
+        symbol,
+        avgIV,
+        avgVRP,
+        putCallRatio
+      }
+    });
+  } catch (error) {
+    console.error("[Snapshot Error]:", error);
+  }
+}
 
 const nseIndia = new NseIndia();
 
@@ -21,7 +52,7 @@ function getMockFallback(symbol: string) {
   return mockChain;
 }
 
-async function fetchNSEData(symbol: string): Promise<OptionContract[]> {
+async function fetchNSEData(symbol: string, realizedVol: number): Promise<OptionContract[]> {
   const rawSymbol = symbol.replace('.NS', '');
   console.log(`[NSE Router] Fetching data for ${rawSymbol}...`);
   
@@ -46,12 +77,15 @@ async function fetchNSEData(symbol: string): Promise<OptionContract[]> {
         const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
         const impliedVol = ce.impliedVolatility || 0;
-        const realizedVol = 15; // Placeholder
         const vrp = impliedVol - realizedVol;
+        
+        const strike = typeof ce.strikePrice === 'string' ? parseFloat(ce.strikePrice.trim()) : ce.strikePrice;
+        const S0 = ce.underlyingValue || strike; 
+        const greeks = calculateGreeks("CALL", S0, strike, daysToExpiry / 365.25, 0.065, impliedVol / 100);
 
         contracts.push({
-          id: `CALL-${ce.strikePrice}-${daysToExpiry}D`,
-          strike: typeof ce.strikePrice === 'string' ? parseFloat(ce.strikePrice.trim()) : ce.strikePrice,
+          id: `CALL-${strike}-${daysToExpiry}D`,
+          strike,
           type: "CALL",
           expiration: ce.expiryDate,
           daysToExpiry,
@@ -61,12 +95,12 @@ async function fetchNSEData(symbol: string): Promise<OptionContract[]> {
           volume: ce.totalTradedVolume || 0,
           openInterest: ce.openInterest || 0,
           impliedVol: parseFloat(impliedVol.toFixed(2)),
-          realizedVol,
+          realizedVol: parseFloat(realizedVol.toFixed(2)),
           vrp: parseFloat(vrp.toFixed(2)),
-          delta: 0,
-          gamma: 0,
-          theta: 0,
-          vega: 0,
+          delta: parseFloat(greeks.delta.toFixed(3)),
+          gamma: parseFloat(greeks.gamma.toFixed(4)),
+          theta: parseFloat(greeks.theta.toFixed(3)),
+          vega: parseFloat(greeks.vega.toFixed(3)),
         });
       }
 
@@ -81,12 +115,15 @@ async function fetchNSEData(symbol: string): Promise<OptionContract[]> {
         const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
         const impliedVol = pe.impliedVolatility || 0;
-        const realizedVol = 15; // Placeholder
         const vrp = impliedVol - realizedVol;
 
+        const strike = typeof pe.strikePrice === 'string' ? parseFloat(pe.strikePrice.trim()) : pe.strikePrice;
+        const S0 = pe.underlyingValue || strike; 
+        const greeks = calculateGreeks("PUT", S0, strike, daysToExpiry / 365.25, 0.065, impliedVol / 100);
+
         contracts.push({
-          id: `PUT-${pe.strikePrice}-${daysToExpiry}D`,
-          strike: typeof pe.strikePrice === 'string' ? parseFloat(pe.strikePrice.trim()) : pe.strikePrice,
+          id: `PUT-${strike}-${daysToExpiry}D`,
+          strike,
           type: "PUT",
           expiration: pe.expiryDate,
           daysToExpiry,
@@ -96,12 +133,12 @@ async function fetchNSEData(symbol: string): Promise<OptionContract[]> {
           volume: pe.totalTradedVolume || 0,
           openInterest: pe.openInterest || 0,
           impliedVol: parseFloat(impliedVol.toFixed(2)),
-          realizedVol,
+          realizedVol: parseFloat(realizedVol.toFixed(2)),
           vrp: parseFloat(vrp.toFixed(2)),
-          delta: 0,
-          gamma: 0,
-          theta: 0,
-          vega: 0,
+          delta: parseFloat(greeks.delta.toFixed(3)),
+          gamma: parseFloat(greeks.gamma.toFixed(4)),
+          theta: parseFloat(greeks.theta.toFixed(3)),
+          vega: parseFloat(greeks.vega.toFixed(3)),
         });
       }
     });
@@ -129,10 +166,13 @@ export async function GET(request: Request) {
   }
 
   try {
+    const realizedVol = await calculateRealizedVol(symbol, 30);
+
     // Branch for Indian Equities (.NS)
     if (symbol.endsWith('.NS')) {
-      const contracts = await fetchNSEData(symbol);
+      const contracts = await fetchNSEData(symbol, realizedVol);
       cache[symbol] = { data: contracts, timestamp: Date.now(), source: "nse" };
+      await saveSnapshot(symbol, contracts);
       return NextResponse.json({ data: contracts, source: "nse" });
     }
 
@@ -185,7 +225,6 @@ export async function GET(request: Request) {
       const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       const impliedVol = (data.iv[i] || 0) * 100;
-      const realizedVol = 15; // Placeholder — will be replaced with historical vol calculation
       const vrp = impliedVol - realizedVol;
 
       contracts.push({
@@ -200,7 +239,7 @@ export async function GET(request: Request) {
         volume: data.volume[i] || 0,
         openInterest: data.openInterest[i] || 0,
         impliedVol: parseFloat(impliedVol.toFixed(2)),
-        realizedVol,
+        realizedVol: parseFloat(realizedVol.toFixed(2)),
         vrp: parseFloat(vrp.toFixed(2)),
         delta: parseFloat((data.delta[i] || 0).toFixed(2)),
         gamma: parseFloat((data.gamma[i] || 0).toFixed(3)),
@@ -211,6 +250,9 @@ export async function GET(request: Request) {
 
     // Store in cache
     cache[symbol] = { data: contracts, timestamp: Date.now(), source: "live" };
+    
+    // Save snapshot in background without blocking response
+    saveSnapshot(symbol, contracts).catch(console.error);
 
     return NextResponse.json({ data: contracts, source: "live" });
 
