@@ -253,14 +253,20 @@ export async function GET(request: Request) {
         cache[symbol] = { data: contracts, timestamp: Date.now(), source: 'nse' };
         await saveSnapshot(symbol, contracts);
         return NextResponse.json({ data: contracts, source: 'nse' });
-      } catch {
-        // If NSE API throws, it usually means the symbol is invalid or network error
-        return NextResponse.json(
-          {
-            error: `Could not fetch data for ${symbol}. Please verify the ticker symbol is correct.`,
-          },
-          { status: 404 },
+      } catch (error) {
+        console.warn(
+          `[NSE Router] NSE API failed for ${symbol} (likely blocked by Vercel firewall), falling back to mock data.`,
+          error,
         );
+        const fallback = getMockFallback(symbol);
+        cache[symbol] = { data: fallback, timestamp: Date.now(), source: 'mock' };
+        saveSnapshot(symbol, fallback).catch(console.error);
+
+        return NextResponse.json({
+          data: fallback,
+          source: 'mock',
+          warning: `Live data temporarily unavailable for ${symbol} (NSE Firewall blocked the request). Showing simulated data.`,
+        });
       }
     }
 
