@@ -1,22 +1,26 @@
-import { NextResponse } from "next/server";
-import { generateOptionsChain, OptionContract } from "@/shared/data/mockOptionsChain";
-import { NseIndia } from "stock-nse-india";
-import { calculateRealizedVol } from "@/shared/utils/realizedVol";
-import { calculateGreeks } from "@/shared/utils/blackScholes";
-import { prisma } from "@/lib/prisma";
+import { NextResponse } from 'next/server';
+import { generateOptionsChain, OptionContract } from '@/shared/data/mockOptionsChain';
+import { NseIndia } from 'stock-nse-india';
+import { calculateRealizedVol } from '@/shared/utils/realizedVol';
+import { calculateGreeks } from '@/shared/utils/blackScholes';
+import { prisma } from '@/lib/prisma';
 
 async function saveSnapshot(symbol: string, contracts: OptionContract[]) {
   if (contracts.length === 0) return;
-  
+
   // Calculate average IV and average VRP (excluding zero values)
-  const validContracts = contracts.filter((c) => c.impliedVol > 0);
-  if (validContracts.length === 0) return;
+  let validContracts = contracts.filter((c) => c.impliedVol > 0);
+  if (validContracts.length === 0) validContracts = contracts; // fallback if all IVs are 0 out-of-hours
 
   const avgIV = validContracts.reduce((sum, c) => sum + c.impliedVol, 0) / validContracts.length;
   const avgVRP = validContracts.reduce((sum, c) => sum + c.vrp, 0) / validContracts.length;
-  
-  const calls = contracts.filter(c => c.type === "CALL").reduce((sum, c) => sum + (c.volume || 0), 0);
-  const puts = contracts.filter(c => c.type === "PUT").reduce((sum, c) => sum + (c.volume || 0), 0);
+
+  const calls = contracts
+    .filter((c) => c.type === 'CALL')
+    .reduce((sum, c) => sum + (c.volume || 0), 0);
+  const puts = contracts
+    .filter((c) => c.type === 'PUT')
+    .reduce((sum, c) => sum + (c.volume || 0), 0);
   const putCallRatio = calls > 0 ? puts / calls : 1;
 
   try {
@@ -25,11 +29,11 @@ async function saveSnapshot(symbol: string, contracts: OptionContract[]) {
         symbol,
         avgIV,
         avgVRP,
-        putCallRatio
-      }
+        putCallRatio,
+      },
     });
   } catch (error) {
-    console.error("[Snapshot Error]:", error);
+    console.error('[Snapshot Error]:', error);
   }
 }
 
@@ -39,13 +43,23 @@ const nseIndia = new NseIndia();
 const cache: Record<string, { data: OptionContract[]; timestamp: number; source: string }> = {};
 const CACHE_TTL_MS = 10_000; // 10 seconds
 
-
 function getMockFallback(symbol: string) {
   // Generate mock data around a realistic price for the given symbol
   const mockPrices: Record<string, number> = {
-    SPY: 560, AAPL: 315, TSLA: 280, NVDA: 140, MSFT: 450,
-    AMZN: 210, GOOGL: 195, META: 640, NFLX: 1050, AMD: 170,
-    "RELIANCE.NS": 2900, "TCS.NS": 4000, "INFY.NS": 1400, "HDFCBANK.NS": 1600,
+    SPY: 560,
+    AAPL: 315,
+    TSLA: 280,
+    NVDA: 140,
+    MSFT: 450,
+    AMZN: 210,
+    GOOGL: 195,
+    META: 640,
+    NFLX: 1050,
+    AMD: 170,
+    'RELIANCE.NS': 2900,
+    'TCS.NS': 4000,
+    'INFY.NS': 1400,
+    'HDFCBANK.NS': 1600,
   };
   const price = mockPrices[symbol] || 400;
   const mockChain = generateOptionsChain(price, 16);
@@ -55,17 +69,17 @@ function getMockFallback(symbol: string) {
 async function fetchNSEData(symbol: string, realizedVol: number): Promise<OptionContract[]> {
   const rawSymbol = symbol.replace('.NS', '');
   console.log(`[NSE Router] Fetching data for ${rawSymbol}...`);
-  
+
   try {
     const optionChain = await nseIndia.getEquityOptionChain(rawSymbol);
-    
+
     if (!optionChain || !optionChain.data) {
-      throw new Error("Invalid data format from NSE API");
+      throw new Error('Invalid data format from NSE API');
     }
 
     const contracts: OptionContract[] = [];
-    
-    optionChain.data.forEach((record: any) => {
+
+    optionChain.data.forEach((record: Record<string, unknown>) => {
       // Process Call
       if (record.optionType === 'CE' || record.CE) {
         const ce = record.CE || record; // Sometimes it's nested, sometimes flat
@@ -75,18 +89,32 @@ async function fetchNSEData(symbol: string, realizedVol: number): Promise<Option
         const now = new Date();
         const diffTime = Math.abs(expDate.getTime() - now.getTime());
         const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        const impliedVol = ce.impliedVolatility || 0;
+
+        const strike =
+          typeof ce.strikePrice === 'string' ? parseFloat(ce.strikePrice.trim()) : ce.strikePrice;
+        const S0 = ce.underlyingValue || strike;
+
+        let impliedVol = ce.impliedVolatility || 0;
+        if (impliedVol <= 0) {
+          const moneyness = strike / S0;
+          const smileAdjust = Math.pow(Math.abs(1 - moneyness), 2) * 50;
+          impliedVol = realizedVol + 2 + smileAdjust;
+        }
+
         const vrp = impliedVol - realizedVol;
-        
-        const strike = typeof ce.strikePrice === 'string' ? parseFloat(ce.strikePrice.trim()) : ce.strikePrice;
-        const S0 = ce.underlyingValue || strike; 
-        const greeks = calculateGreeks("CALL", S0, strike, daysToExpiry / 365.25, 0.065, impliedVol / 100);
+        const greeks = calculateGreeks(
+          'CALL',
+          S0,
+          strike,
+          daysToExpiry / 365.25,
+          0.065,
+          impliedVol / 100,
+        );
 
         contracts.push({
           id: `CALL-${strike}-${daysToExpiry}D`,
           strike,
-          type: "CALL",
+          type: 'CALL',
           expiration: ce.expiryDate,
           daysToExpiry,
           bid: ce.bidprice || 0,
@@ -113,18 +141,32 @@ async function fetchNSEData(symbol: string, realizedVol: number): Promise<Option
         const now = new Date();
         const diffTime = Math.abs(pe.expiryDate ? expDate.getTime() - now.getTime() : 0);
         const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        const impliedVol = pe.impliedVolatility || 0;
-        const vrp = impliedVol - realizedVol;
 
-        const strike = typeof pe.strikePrice === 'string' ? parseFloat(pe.strikePrice.trim()) : pe.strikePrice;
-        const S0 = pe.underlyingValue || strike; 
-        const greeks = calculateGreeks("PUT", S0, strike, daysToExpiry / 365.25, 0.065, impliedVol / 100);
+        const strike =
+          typeof pe.strikePrice === 'string' ? parseFloat(pe.strikePrice.trim()) : pe.strikePrice;
+        const S0 = pe.underlyingValue || strike;
+
+        let impliedVol = pe.impliedVolatility || 0;
+        if (impliedVol <= 0) {
+          const moneyness = S0 / strike;
+          const smileAdjust = Math.pow(Math.abs(1 - moneyness), 2) * 50;
+          impliedVol = realizedVol + 2 + smileAdjust;
+        }
+
+        const vrp = impliedVol - realizedVol;
+        const greeks = calculateGreeks(
+          'PUT',
+          S0,
+          strike,
+          daysToExpiry / 365.25,
+          0.065,
+          impliedVol / 100,
+        );
 
         contracts.push({
           id: `PUT-${strike}-${daysToExpiry}D`,
           strike,
-          type: "PUT",
+          type: 'PUT',
           expiration: pe.expiryDate,
           daysToExpiry,
           bid: pe.bidprice || 0,
@@ -152,11 +194,13 @@ async function fetchNSEData(symbol: string, realizedVol: number): Promise<Option
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const symbol = (searchParams.get("symbol") || "SPY").toUpperCase();
+  const symbol = (searchParams.get('symbol') || 'SPY').toUpperCase();
 
   // Check if we should use mock data (e.g., local dev without API key)
-  if (process.env.USE_MOCK_DATA === "true") {
-    return NextResponse.json({ data: getMockFallback(symbol), source: "mock" });
+  if (process.env.USE_MOCK_DATA === 'true') {
+    const mockData = getMockFallback(symbol);
+    saveSnapshot(symbol, mockData).catch(console.error);
+    return NextResponse.json({ data: mockData, source: 'mock' });
   }
 
   // Check in-memory cache first
@@ -170,23 +214,37 @@ export async function GET(request: Request) {
 
     // Branch for Indian Equities (.NS)
     if (symbol.endsWith('.NS')) {
-      const contracts = await fetchNSEData(symbol, realizedVol);
-      cache[symbol] = { data: contracts, timestamp: Date.now(), source: "nse" };
-      await saveSnapshot(symbol, contracts);
-      return NextResponse.json({ data: contracts, source: "nse" });
+      try {
+        const contracts = await fetchNSEData(symbol, realizedVol);
+        cache[symbol] = { data: contracts, timestamp: Date.now(), source: 'nse' };
+        await saveSnapshot(symbol, contracts);
+        return NextResponse.json({ data: contracts, source: 'nse' });
+      } catch {
+        // If NSE API throws, it usually means the symbol is invalid or network error
+        return NextResponse.json(
+          {
+            error: `Could not fetch data for ${symbol}. Please verify the ticker symbol is correct.`,
+          },
+          { status: 404 },
+        );
+      }
     }
 
     // Branch for US Equities (MarketData.app)
     const apiKey = process.env.MARKETDATA_API_TOKEN;
     const headers: HeadersInit = {};
     if (apiKey && apiKey.trim().length > 0) {
-      headers["Authorization"] = `Bearer ${apiKey.trim()}`;
+      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
     }
 
     const response = await fetch(
       `https://api.marketdata.app/v1/options/chain/${encodeURIComponent(symbol)}`,
-      { headers, cache: "no-store" }
+      { headers, cache: 'no-store' },
     );
+
+    if (response.status === 404) {
+      return NextResponse.json({ error: `Ticker ${symbol} not found.` }, { status: 404 });
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -194,19 +252,22 @@ export async function GET(request: Request) {
       const fallback = getMockFallback(symbol);
       return NextResponse.json({
         data: fallback,
-        source: "mock",
+        source: 'mock',
         warning: `Live data unavailable for ${symbol} (API returned ${response.status}). Showing simulated data. Add your free API token in .env.local to enable live data for all tickers.`,
       });
     }
 
     const data = await response.json();
 
-    if (data.s !== "ok" || !data.strike) {
+    if (data.s !== 'ok' || !data.strike) {
+      if (data.errmsg && data.errmsg.toLowerCase().includes('not found')) {
+        return NextResponse.json({ error: `Ticker ${symbol} not found.` }, { status: 404 });
+      }
       const fallback = getMockFallback(symbol);
       return NextResponse.json({
         data: fallback,
-        source: "mock",
-        warning: "Invalid response from API. Showing simulated data.",
+        source: 'mock',
+        warning: 'Invalid response from API. Showing simulated data.',
       });
     }
 
@@ -215,11 +276,11 @@ export async function GET(request: Request) {
     // MarketData.app returns column arrays, we zip them into row objects
     for (let i = 0; i < data.strike.length; i++) {
       const strike = data.strike[i];
-      const type = data.side[i] === "call" ? "CALL" : "PUT";
-      
+      const type = data.side[i] === 'call' ? 'CALL' : 'PUT';
+
       const expDate = new Date(data.expiration[i] * 1000);
-      const expirationString = expDate.toISOString().split("T")[0];
-      
+      const expirationString = expDate.toISOString().split('T')[0];
+
       const now = new Date();
       const diffTime = Math.abs(expDate.getTime() - now.getTime());
       const daysToExpiry = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -230,7 +291,7 @@ export async function GET(request: Request) {
       contracts.push({
         id: `${type}-${strike}-${daysToExpiry}D`,
         strike,
-        type: type as "CALL" | "PUT",
+        type: type as 'CALL' | 'PUT',
         expiration: expirationString,
         daysToExpiry,
         bid: data.bid[i] || 0,
@@ -249,21 +310,17 @@ export async function GET(request: Request) {
     }
 
     // Store in cache
-    cache[symbol] = { data: contracts, timestamp: Date.now(), source: "live" };
-    
+    cache[symbol] = { data: contracts, timestamp: Date.now(), source: 'live' };
+
     // Save snapshot in background without blocking response
     saveSnapshot(symbol, contracts).catch(console.error);
 
-    return NextResponse.json({ data: contracts, source: "live" });
-
-  } catch (error: any) {
-    console.error("Option Chain Fetch Error:", error);
-    // Fall back to mock data on network errors too
-    const fallback = getMockFallback(symbol);
-    return NextResponse.json({
-      data: fallback,
-      source: "mock",
-      warning: "Network error reaching API. Showing simulated data.",
-    });
+    return NextResponse.json({ data: contracts, source: 'live' });
+  } catch (error) {
+    console.error('Option Chain Fetch Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error while fetching options data.' },
+      { status: 500 },
+    );
   }
 }
