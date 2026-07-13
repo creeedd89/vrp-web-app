@@ -37,17 +37,25 @@ export default function PortfolioRiskView() {
 
   const [customQuantities, setCustomQuantities] = useState<Record<string, string>>({});
 
-  // Mock a portfolio: Short 10 contracts of the 3 highest VRP Puts, Long 5 of the highest VRP Calls
+  // Build the simulated book from near-the-money options. Selecting the highest
+  // VRP contracts alone routinely selects deep ITM/OTM options with rounded-zero
+  // Greeks, which makes quantity changes look like they have no effect.
   const portfolioPositions: (OptionContract & { quantityString: string; quantity: number })[] = [];
 
   if (chain.length > 0 && !error) {
+    const byAtTheMoneyDelta = (targetDelta: number) => (a: OptionContract, b: OptionContract) => {
+      const aDistance = Math.abs(a.delta - targetDelta);
+      const bDistance = Math.abs(b.delta - targetDelta);
+      return aDistance - bDistance || b.vrp - a.vrp;
+    };
+
     const puts = chain
       .filter((c) => c.type === 'PUT')
-      .sort((a, b) => b.vrp - a.vrp)
+      .sort(byAtTheMoneyDelta(-0.5))
       .slice(0, 3);
     const calls = chain
       .filter((c) => c.type === 'CALL')
-      .sort((a, b) => b.vrp - a.vrp)
+      .sort(byAtTheMoneyDelta(0.5))
       .slice(0, 2);
 
     puts.forEach((p) => {
@@ -87,7 +95,12 @@ export default function PortfolioRiskView() {
   // Calculate a mock 99% 1-Day VaR (Value at Risk) based on Delta-Gamma approximation
   // Assuming a 2% daily move in the underlying
   const spotMove = 0.02;
-  const estimatedSpot = portfolioPositions.length > 0 ? portfolioPositions[0].strike : 100;
+  const estimatedSpot =
+    chain.reduce<OptionContract | null>(
+      (mostSensitive, contract) =>
+        !mostSensitive || contract.gamma > mostSensitive.gamma ? contract : mostSensitive,
+      null,
+    )?.strike ?? 100;
 
   const deltaPnl = portfolioDelta * (estimatedSpot * spotMove);
   const gammaPnl = 0.5 * portfolioGamma * Math.pow(estimatedSpot * spotMove, 2);
@@ -183,7 +196,9 @@ export default function PortfolioRiskView() {
                               className={`px-4 py-3 text-right font-bold ${p.quantity > 0 ? 'text-emerald-400' : p.quantity < 0 ? 'text-rose-400' : 'text-slate-400'}`}
                             >
                               <input
-                                type="text"
+                                type="number"
+                                step="1"
+                                aria-label={`Quantity for ${p.id}`}
                                 value={p.quantityString}
                                 onChange={(e) => handleQuantityChange(p.id, e.target.value)}
                                 className="w-24 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-right text-white focus:border-cyan-500 focus:outline-none"
