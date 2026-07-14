@@ -14,7 +14,7 @@ export default function ScreenerView() {
   const { data: session } = useSession();
   
   const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set());
-  const [ticker, setTicker] = useState("SPY");
+  const [ticker, setTicker] = useState("RELIANCE.NS");
   const [baseChain, setBaseChain] = useState<OptionContract[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
