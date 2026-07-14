@@ -1,8 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import TopBar from "@/shared/components/TopBar";
-import { BookOpen, Sigma, Activity, LineChart, Hash, ArrowRight, Info } from "lucide-react";
-import { LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { 
+  BookOpen, Sigma, Activity, LineChart, Target, Calculator, 
+  BarChart as BarChartIcon, Info, ArrowRight, Hash 
+} from "lucide-react";
+import { 
+  LineChart as RechartsLineChart, Line, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell
+} from "recharts";
 
 // Data for Volatility Smile Chart
 const smileData = Array.from({ length: 21 }, (_, i) => {
@@ -12,216 +19,359 @@ const smileData = Array.from({ length: 21 }, (_, i) => {
   return { strike, impliedVol: smile };
 });
 
+// Data for Risk Analyzer Normal Distribution
+const distributionData = [
+  { range: "<-15%", probability: 0.1, isTail: true },
+  { range: "-15 to -10%", probability: 2.1, isTail: true },
+  { range: "-10 to -5%", probability: 13.6, isTail: false },
+  { range: "-5 to -2%", probability: 18.1, isTail: false },
+  { range: "-2 to 0%", probability: 16.1, isTail: false },
+  { range: "0 to 2%", probability: 16.1, isTail: false },
+  { range: "2 to 5%", probability: 18.1, isTail: false },
+  { range: "5 to 10%", probability: 13.6, isTail: false },
+  { range: "10 to 15%", probability: 2.1, isTail: false },
+  { range: ">15%", probability: 0.1, isTail: true },
+];
+
+// Data for Multi-leg Scenario (Iron Condor Payoff)
+const scenarioData = Array.from({ length: 41 }, (_, i) => {
+  const price = 80 + i; // 80 to 120
+  let pnl = 0;
+  // +1 90 Put, -1 95 Put, -1 105 Call, +1 110 Call
+  // Credit received = $2.00
+  pnl += Math.max(0, 90 - price) * 1; // Long 90 Put
+  pnl -= Math.max(0, 95 - price) * 1; // Short 95 Put
+  pnl -= Math.max(0, price - 105) * 1; // Short 105 Call
+  pnl += Math.max(0, price - 110) * 1; // Long 110 Call
+  pnl += 2; // Net credit
+  
+  return { price, pnl: parseFloat(pnl.toFixed(2)) };
+});
+
 export default function MethodologyView() {
+  const [activeSection, setActiveSection] = useState("vrp");
+
+  const sections = [
+    { id: "vrp", title: "Variance Risk Premium", icon: Activity },
+    { id: "black-scholes", title: "Black-Scholes Model", icon: Sigma },
+    { id: "greeks", title: "Option Greeks", icon: BookOpen },
+    { id: "smile", title: "Volatility Surface", icon: LineChart },
+    { id: "risk", title: "Risk Analyzer", icon: BarChartIcon },
+    { id: "scenario", title: "Scenario Analysis", icon: Target },
+  ];
+
+  const scrollToSection = (id: string) => {
+    setActiveSection(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
     <div className="flex flex-col h-screen" style={{ backgroundColor: "var(--bg-primary)" }}>
       <TopBar
         title="Mathematics & Methodology"
-        subtitle="100% Transparency: Understand the quantitative engine behind VRP Global"
+        subtitle="The definitive guide to the quantitative models powering VRP Global."
       />
 
-      <div className="px-8 py-8 flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto space-y-12">
-          
-          {/* Section 1: VRP */}
-          <section className="glass-card p-8 animate-fade-in-up" style={{ backgroundColor: "var(--bg-card)", borderColor: "var(--border)" }}>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 rounded-xl bg-cyan-500/10">
-                <Activity size={24} className="text-cyan-500" />
-              </div>
-              <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>1. Variance Risk Premium (VRP)</h2>
-            </div>
-            
-            <p className="text-lg leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-              The Variance Risk Premium is the central metric of this platform. It mathematically measures the difference between what the market <i>expects</i> volatility to be, and what the volatility <i>actually</i> was.
-            </p>
+      <div className="flex flex-1 overflow-hidden">
+        
+        {/* Table of Contents Sidebar */}
+        <div className="w-64 border-r overflow-y-auto hidden md:block" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--bg-secondary)" }}>
+          <div className="p-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Contents</h3>
+            <nav className="space-y-1">
+              {sections.map((sec) => {
+                const Icon = sec.icon;
+                const isActive = activeSection === sec.id;
+                return (
+                  <button
+                    key={sec.id}
+                    onClick={() => scrollToSection(sec.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors ${
+                      isActive ? 'bg-cyan-500/10 text-cyan-500 font-semibold' : 'hover:bg-slate-800/50 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Icon size={16} />
+                    {sec.title}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
 
-            <div className="rounded-2xl p-8 mb-8 text-center relative overflow-hidden" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-500 to-purple-500"></div>
-              <p className="font-mono text-3xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>
-                VRP = IV − RV
-              </p>
-              <div className="flex flex-col md:flex-row justify-center gap-8 md:gap-12 mt-6 text-sm">
-                <div className="text-left max-w-xs">
-                  <span className="text-cyan-500 font-bold block mb-1">IV (Implied Volatility)</span>
-                  <span style={{ color: "var(--text-muted)" }}>The market's future expectation of volatility, derived directly from how expensive options are right now.</span>
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth" id="scroll-container" onScroll={(e) => {
+          // Simple scroll spy logic
+          const container = e.currentTarget;
+          const offsets = sections.map(s => ({
+            id: s.id,
+            offsetTop: document.getElementById(s.id)?.offsetTop || 0
+          }));
+          const scrollPos = container.scrollTop + 200;
+          const current = offsets.slice().reverse().find(o => scrollPos >= o.offsetTop);
+          if (current && current.id !== activeSection) setActiveSection(current.id);
+        }}>
+          <div className="max-w-4xl mx-auto space-y-16 pb-24">
+            
+            {/* 1. VRP */}
+            <section id="vrp" className="scroll-mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 rounded-xl bg-cyan-500/10">
+                  <Activity size={24} className="text-cyan-500" />
                 </div>
-                <div className="text-left max-w-xs">
-                  <span className="text-purple-500 font-bold block mb-1">RV (Realized Volatility)</span>
-                  <span style={{ color: "var(--text-muted)" }}>The actual, historical mathematical movement of the stock over a past window (currently a 15% baseline).</span>
-                </div>
-              </div>
-            </div>
-
-            <h3 className="text-xl font-semibold mb-4" style={{ color: "var(--text-primary)" }}>How to read the Screener Colors</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--positive-bg)", border: "1px solid var(--positive)" }}>
-                <h3 className="font-bold mb-2 flex items-center gap-2" style={{ color: "var(--positive)" }}>
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--positive)" }} /> VRP &gt; 5% (Green)
-                </h3>
-                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                  <strong>Overpriced:</strong> The market is panicking or speculating heavily. Options are expensive relative to history. Sellers have a statistical edge collecting this premium.
-                </p>
-              </div>
-              <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--warning-bg)", border: "1px solid var(--warning)" }}>
-                <h3 className="font-bold mb-2 flex items-center gap-2" style={{ color: "var(--warning)" }}>
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--warning)" }} /> 0% &lt; VRP &lt; 5% (Yellow)
-                </h3>
-                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                  <strong>Fairly Priced:</strong> The premium is small and within the margin of historical noise. This is neutral territory with no obvious mathematical edge.
-                </p>
-              </div>
-              <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--negative-bg)", border: "1px solid var(--negative)" }}>
-                <h3 className="font-bold mb-2 flex items-center gap-2" style={{ color: "var(--negative)" }}>
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--negative)" }} /> VRP &lt; 0% (Red)
-                </h3>
-                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                  <strong>Underpriced:</strong> Options are unusually cheap. The market expects less movement than history suggests. Buyers may have an edge.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* Section 2: Black-Scholes */}
-          <section className="glass-card p-8 animate-fade-in-up" style={{ animationDelay: "0.1s", backgroundColor: "var(--bg-card)", borderColor: "var(--border)" }}>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 rounded-xl bg-purple-500/10">
-                <Sigma size={24} className="text-purple-500" />
-              </div>
-              <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>2. Black-Scholes & Implied Volatility</h2>
-            </div>
-            
-            <p className="text-lg leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-              Implied Volatility (IV) is not something you can just observe. It must be mathematically "backed out" from the real-time market price of an option using the Nobel Prize-winning Black-Scholes formula.
-            </p>
-
-            <div className="rounded-2xl p-8 mb-6 font-mono text-sm sm:text-base overflow-x-auto" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}>
-              <div className="mb-4 font-bold">
-                <span className="text-cyan-500">C</span> = 
-                <span className="text-emerald-500"> S₀</span> · N(d₁) − 
-                <span className="text-amber-500"> K</span> · e<sup>−rt</sup> · N(d₂)
-              </div>
-              <div className="pl-4 border-l-2 mb-6" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-                Where:<br/>
-                <span className="text-cyan-500 font-semibold">C</span> = Call Option Market Price<br/>
-                <span className="text-emerald-500 font-semibold">S₀</span> = Current Stock Price<br/>
-                <span className="text-amber-500 font-semibold">K</span> = Strike Price<br/>
-                N(·) = Cumulative normal distribution function
-              </div>
-              <div className="mb-2">
-                d₁ = [ ln(<span className="text-emerald-500">S₀</span> / <span className="text-amber-500">K</span>) + (r + <span className="text-purple-500">σ²</span> / 2) · t ] / (<span className="text-purple-500">σ</span> · √t)
-              </div>
-              <div>
-                d₂ = d₁ − <span className="text-purple-500">σ</span> · √t
-              </div>
-            </div>
-            
-            <div className="flex items-start gap-4 p-4 rounded-xl" style={{ backgroundColor: "var(--primary-bg)", border: "1px solid var(--primary)" }}>
-              <Info className="shrink-0 mt-1" size={20} style={{ color: "var(--primary)" }} />
-              <p className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                <strong>Solving for IV:</strong> The only unknown variable in the market is <span className="text-purple-500 font-mono font-bold">σ</span> (Volatility). By plugging the actual live market price of the option into <span className="text-cyan-500 font-mono font-bold">C</span>, our system uses algorithms (like Newton-Raphson) to solve backward for <span className="text-purple-500 font-mono font-bold">σ</span>. That resulting value is the Implied Volatility shown in the screener!
-              </p>
-            </div>
-          </section>
-
-          {/* Section 3: Volatility Smile */}
-          <section className="glass-card p-8 animate-fade-in-up" style={{ animationDelay: "0.2s", backgroundColor: "var(--bg-card)", borderColor: "var(--border)" }}>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 rounded-xl bg-emerald-500/10">
-                <LineChart size={24} className="text-emerald-500" />
-              </div>
-              <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>3. The Volatility Smile</h2>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-              <div>
-                <p className="text-lg leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-                  In a theoretical world, IV would be completely flat across all strikes. However, in real markets—especially retail-heavy ones like India—IV forms a "smile" or "skew."
-                </p>
-                <ul className="space-y-4 text-sm" style={{ color: "var(--text-secondary)" }}>
-                  <li className="flex gap-3">
-                    <ArrowRight className="text-emerald-500 shrink-0 mt-0.5" size={18} />
-                    <span><strong>Out-of-the-Money (OTM) Calls:</strong> Retail traders aggressively buy cheap OTM calls hoping for lottery-style payouts. This massive demand inflates their prices, driving IV up on the right side.</span>
-                  </li>
-                  <li className="flex gap-3">
-                    <ArrowRight className="text-emerald-500 shrink-0 mt-0.5" size={18} />
-                    <span><strong>Out-of-the-Money (OTM) Puts:</strong> Institutions buy deep OTM puts as portfolio insurance against crashes, inflating IV on the left side (often causing a "smirk").</span>
-                  </li>
-                </ul>
+                <h2 className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>1. Variance Risk Premium (VRP) & RV</h2>
               </div>
               
-              <div className="p-6 rounded-2xl" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                <h4 className="text-center text-sm font-bold uppercase tracking-widest mb-6" style={{ color: "var(--text-muted)" }}>Implied Volatility across Strikes</h4>
-                <div className="h-[250px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsLineChart data={smileData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                      <XAxis dataKey="strike" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} tickLine={false} axisLine={false} />
-                      <YAxis stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} tickLine={false} axisLine={false} domain={['dataMin - 2', 'dataMax + 2']} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }}
-                        itemStyle={{ color: '#10B981' }}
-                        formatter={(value: any) => [`${Number(value).toFixed(2)}%`, 'IV']}
-                      />
-                      <ReferenceLine x={100} stroke="var(--text-muted)" strokeDasharray="3 3" label={{ position: 'top', value: 'Current Price (ATM)', fill: 'var(--text-muted)', fontSize: 10 }} />
-                      <Line type="monotone" dataKey="impliedVol" stroke="#10B981" strokeWidth={3} dot={false} animationDuration={2000} />
-                    </RechartsLineChart>
-                  </ResponsiveContainer>
+              <div className="glass-card p-6 md:p-8 space-y-6">
+                <p className="text-lg leading-relaxed text-slate-300">
+                  The Variance Risk Premium (VRP) is the mathematical spread between the market's expectation of future volatility (Implied Volatility) and the actual historical volatility (Realized Volatility).
+                </p>
+
+                <div className="p-6 rounded-xl bg-slate-900 border border-slate-700 text-center">
+                  <p className="font-mono text-3xl font-bold text-white mb-2">VRP = IV − RV</p>
+                  <p className="text-sm text-slate-400">All values are annualized percentages.</p>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-white">Realized Volatility (RV) Calculation</h3>
+                  <p className="text-slate-300">
+                    RV is measured using the standard close-to-close log return formula over a historical window (e.g., 30 trading days).
+                  </p>
+                  <div className="bg-slate-900 p-4 rounded-lg overflow-x-auto border border-slate-700">
+                    <pre className="font-mono text-sm text-slate-300">
+                      1. Log Returns: r_i = ln( P_i / P_{"{i-1}"} ){"\n"}
+                      2. Variance = Σ(r_i - mean)² / (N - 1){"\n"}
+                      3. Standard Deviation (σ_daily) = √Variance{"\n"}
+                      4. Annualized RV = σ_daily × √252
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="space-y-4 mt-6">
+                  <h3 className="text-xl font-bold text-white">UI Color Coding Logic</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                      <span className="text-emerald-400 font-bold block mb-1">VRP &gt; 5%</span>
+                      <p className="text-xs text-slate-300">Options are overpriced. Sellers possess a mathematical edge collecting inflated premium.</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <span className="text-amber-400 font-bold block mb-1">0% &lt; VRP ≤ 5%</span>
+                      <p className="text-xs text-slate-300">Fairly priced. Represents the long-term average index premium. Neutral zone.</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/30">
+                      <span className="text-rose-400 font-bold block mb-1">VRP &lt; 0%</span>
+                      <p className="text-xs text-slate-300">Options are underpriced. Buyers can acquire cheap convex payouts.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          {/* Section 4: The Greeks */}
-          <section className="glass-card p-8 animate-fade-in-up" style={{ animationDelay: "0.3s", backgroundColor: "var(--bg-card)", borderColor: "var(--border)" }}>
-            <div className="flex items-center gap-4 mb-8">
-              <div className="p-3 rounded-xl bg-orange-500/10">
-                <BookOpen size={24} className="text-orange-500" />
+            {/* 2. Black Scholes */}
+            <section id="black-scholes" className="scroll-mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 rounded-xl bg-purple-500/10">
+                  <Sigma size={24} className="text-purple-500" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">2. Black-Scholes Pricing Model</h2>
               </div>
-              <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>4. The Option Greeks</h2>
-            </div>
-            
-            <p className="text-lg leading-relaxed mb-6" style={{ color: "var(--text-secondary)" }}>
-              The Greeks measure the sensitivity of an option's price to various market factors. They are essential risk management tools calculated automatically in the screener.
-            </p>
+              
+              <div className="glass-card p-6 md:p-8 space-y-6">
+                <p className="text-lg leading-relaxed text-slate-300">
+                  Implied Volatility (IV) is extracted from the Black-Scholes-Merton model by plugging in the live market price and solving backwards for volatility (σ) using numerical methods like Newton-Raphson.
+                </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-5 rounded-xl transition-colors" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                <h3 className="text-lg font-bold mb-2 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-                  <span className="text-orange-500 font-mono text-xl font-bold">Δ</span> Delta
-                </h3>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>The rate of change in the option price for a $1 change in the underlying stock. A delta of 0.5 means the option moves $0.50.</p>
-                <code className="text-xs text-orange-500 bg-orange-500/10 px-2 py-1 rounded font-mono font-semibold">Δ_call = N(d₁)</code>
+                <div className="p-6 rounded-xl bg-slate-900 border border-slate-700 overflow-x-auto">
+                  <h4 className="text-cyan-400 font-bold mb-4">Call Option Pricing Formula</h4>
+                  <p className="font-mono text-lg text-white mb-6 whitespace-nowrap">
+                    C = S₀ · N(d₁) − K · e<sup>−rT</sup> · N(d₂)
+                  </p>
+                  
+                  <h4 className="text-purple-400 font-bold mb-4">Put Option Pricing Formula</h4>
+                  <p className="font-mono text-lg text-white mb-6 whitespace-nowrap">
+                    P = K · e<sup>−rT</sup> · N(−d₂) − S₀ · N(−d₁)
+                  </p>
+
+                  <div className="space-y-2 font-mono text-sm text-slate-300">
+                    <p>d₁ = [ ln(S₀/K) + (r + σ²/2)T ] / (σ√T)</p>
+                    <p>d₂ = d₁ − σ√T</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
+                  <Info className="shrink-0 mt-1 text-blue-400" size={20} />
+                  <div>
+                    <h4 className="font-bold text-blue-400 mb-1">Normal CDF Approximation</h4>
+                    <p className="text-sm text-slate-300">
+                      Our codebase calculates N(x) (the cumulative normal distribution) using the highly accurate Abramowitz and Stegun approximation (error &lt; 1.5e-7), ensuring rapid client-side Greek and probability calculations.
+                    </p>
+                  </div>
+                </div>
               </div>
+            </section>
 
-              <div className="p-5 rounded-xl transition-colors" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                <h3 className="text-lg font-bold mb-2 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-                  <span className="text-orange-500 font-mono text-xl font-bold">Γ</span> Gamma
-                </h3>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>The rate of change of Delta for a $1 change in the stock. It measures the "curvature" or acceleration of your risk.</p>
-                <code className="text-xs text-orange-500 bg-orange-500/10 px-2 py-1 rounded font-mono font-semibold">Γ = N'(d₁) / (S₀·σ·√t)</code>
+            {/* 3. Greeks */}
+            <section id="greeks" className="scroll-mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 rounded-xl bg-orange-500/10">
+                  <BookOpen size={24} className="text-orange-500" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">3. The Option Greeks</h2>
               </div>
-
-              <div className="p-5 rounded-xl transition-colors" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                <h3 className="text-lg font-bold mb-2 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-                  <span className="text-orange-500 font-mono text-xl font-bold">Θ</span> Theta
-                </h3>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>The rate of change in option price due to the passage of time (Time Decay). Options lose value every single day.</p>
-                <code className="text-xs text-orange-500 bg-orange-500/10 px-2 py-1 rounded font-mono font-semibold">Θ_call = -[S₀·N'(d₁)·σ]/(2√t)...</code>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="glass-card p-6 space-y-3">
+                  <h3 className="text-xl font-bold text-orange-400 flex items-center gap-2">Δ Delta</h3>
+                  <p className="text-sm text-slate-300">Sensitivity to the underlying price. A delta of 0.50 means the option price moves $0.50 for every $1.00 move in the stock.</p>
+                  <pre className="text-xs bg-slate-900 p-2 rounded text-slate-400 border border-slate-700">Δ_call = N(d₁){"\n"}Δ_put = N(d₁) - 1</pre>
+                </div>
+                <div className="glass-card p-6 space-y-3">
+                  <h3 className="text-xl font-bold text-orange-400 flex items-center gap-2">Γ Gamma</h3>
+                  <p className="text-sm text-slate-300">The acceleration of Delta. It measures the "curvature" of risk. Highest for At-The-Money options near expiration.</p>
+                  <pre className="text-xs bg-slate-900 p-2 rounded text-slate-400 border border-slate-700">Γ = N'(d₁) / (S₀·σ·√T)</pre>
+                </div>
+                <div className="glass-card p-6 space-y-3">
+                  <h3 className="text-xl font-bold text-orange-400 flex items-center gap-2">Θ Theta</h3>
+                  <p className="text-sm text-slate-300">Time decay. Measures how much value the option loses each day as expiration approaches (assuming nothing else changes).</p>
+                  <pre className="text-xs bg-slate-900 p-2 rounded text-slate-400 border border-slate-700 overflow-x-auto">Θ_c = -[S₀·N'(d₁)·σ]/(2√T) - rKe^(-rT)N(d₂)</pre>
+                </div>
+                <div className="glass-card p-6 space-y-3">
+                  <h3 className="text-xl font-bold text-orange-400 flex items-center gap-2">ν Vega</h3>
+                  <p className="text-sm text-slate-300">Sensitivity to Implied Volatility. Measures the absolute price change for a 1% shift in IV.</p>
+                  <pre className="text-xs bg-slate-900 p-2 rounded text-slate-400 border border-slate-700">ν = S₀·N'(d₁)·√T</pre>
+                </div>
               </div>
+            </section>
 
-              <div className="p-5 rounded-xl transition-colors" style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-                <h3 className="text-lg font-bold mb-2 flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-                  <span className="text-orange-500 font-mono text-xl font-bold">ν</span> Vega
-                </h3>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>The rate of change in option price for a 1% change in Implied Volatility. Higher volatility makes options more expensive.</p>
-                <code className="text-xs text-orange-500 bg-orange-500/10 px-2 py-1 rounded font-mono font-semibold">ν = S₀·N'(d₁)·√t</code>
+            {/* 4. Volatility Smile */}
+            <section id="smile" className="scroll-mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 rounded-xl bg-emerald-500/10">
+                  <LineChart size={24} className="text-emerald-500" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">4. Volatility Surface & Smile</h2>
               </div>
-            </div>
-          </section>
+              
+              <div className="glass-card p-6 md:p-8 space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                  <div>
+                    <h3 className="text-xl font-bold text-white mb-4">Moneyness and The "Smile"</h3>
+                    <p className="text-slate-300 mb-4">
+                      In theory, Implied Volatility should be constant across all strikes. In reality, it forms a "smile" or "skew" shape because of supply and demand dynamics:
+                    </p>
+                    <ul className="space-y-3 text-sm text-slate-300">
+                      <li className="flex gap-2"><ArrowRight size={16} className="text-emerald-500 shrink-0 mt-1" /> <strong>Left side (OTM Puts):</strong> Institutions buy deep OTM puts as portfolio insurance against crashes, inflating their prices and IV (often causing a "smirk").</li>
+                      <li className="flex gap-2"><ArrowRight size={16} className="text-emerald-500 shrink-0 mt-1" /> <strong>Right side (OTM Calls):</strong> Retail traders aggressively buy cheap OTM calls hoping for lottery payouts, inflating their prices.</li>
+                    </ul>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl">
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsLineChart data={smileData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                          <XAxis dataKey="strike" stroke="#94a3b8" />
+                          <YAxis domain={['auto', 'auto']} stroke="#94a3b8" />
+                          <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }} formatter={(val: any) => [`${Number(val).toFixed(2)}%`, 'IV']} />
+                          <ReferenceLine x={100} stroke="#64748b" strokeDasharray="3 3" label={{ position: 'top', value: 'ATM', fill: '#64748b' }} />
+                          <Line type="monotone" dataKey="impliedVol" stroke="#10b981" strokeWidth={3} dot={false} />
+                        </RechartsLineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
 
-          {/* Footer Padding */}
-          <div className="h-12"></div>
+            {/* 5. Risk Analyzer */}
+            <section id="risk" className="scroll-mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 rounded-xl bg-pink-500/10">
+                  <BarChartIcon size={24} className="text-pink-500" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">5. Risk Analyzer & Return Distributions</h2>
+              </div>
+              
+              <div className="glass-card p-6 md:p-8 space-y-8">
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">Log-Normal Expected Returns</h3>
+                  <p className="text-slate-300">
+                    The Risk Analyzer projects future price movements by assuming stock prices follow a log-normal distribution with drift (risk-free rate) and standard deviation equal to the Implied Volatility. We bucket the Z-scores to calculate the area under the curve (probabilities).
+                  </p>
+                </div>
+
+                <div className="h-64 w-full bg-slate-900 border border-slate-700 p-4 rounded-xl">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={distributionData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                      <XAxis dataKey="range" stroke="#94a3b8" tick={{ fontSize: 10 }} />
+                      <YAxis stroke="#94a3b8" tickFormatter={(v) => `${v}%`} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }} formatter={(val: any) => [`${val}%`, 'Probability']} />
+                      <Bar dataKey="probability" radius={[4, 4, 0, 0]}>
+                        {distributionData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.isTail ? '#ef4444' : '#3b82f6'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">Crash Probability (Tail Risk)</h3>
+                  <p className="text-slate-300 mb-4">
+                    The exact probability of a stock dropping below a specific threshold $K$ (e.g., a 10% drop) before time $T$ is mathematically identical to $N(-d_2)$ in the Black-Scholes formula. 
+                  </p>
+                  <pre className="bg-slate-900 p-4 rounded-xl text-pink-400 border border-slate-700 font-mono text-sm overflow-x-auto">
+                    P(S_T &lt; K) = N(-d₂) {"\n\n"}
+                    Where d₂ = [ln(S₀/K) + (r - σ²/2)T] / (σ√T)
+                  </pre>
+                </div>
+              </div>
+            </section>
+
+            {/* 6. Scenario Analysis */}
+            <section id="scenario" className="scroll-mt-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 rounded-xl bg-blue-500/10">
+                  <Target size={24} className="text-blue-500" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">6. Scenario Analysis & Multi-Leg Spreads</h2>
+              </div>
+              
+              <div className="glass-card p-6 md:p-8 space-y-6">
+                <p className="text-lg leading-relaxed text-slate-300">
+                  The Scenario Analyzer lets you simulate complex options positions across varying underlying prices, time decay (Theta), and Implied Volatility shocks (Vega).
+                </p>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                  <div className="h-64 bg-slate-900 border border-slate-700 p-4 rounded-xl">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsLineChart data={scenarioData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis dataKey="price" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" />
+                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                        <ReferenceLine y={0} stroke="#64748b" />
+                        <ReferenceLine x={100} stroke="#64748b" strokeDasharray="3 3" label={{ position: 'top', value: 'Current', fill: '#64748b', fontSize: 10 }} />
+                        <Line type="monotone" dataKey="pnl" stroke="#10b981" strokeWidth={3} dot={false} />
+                      </RechartsLineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white mb-2">Net Summation Logic</h3>
+                    <p className="text-slate-300 text-sm mb-4">
+                      For multi-leg strategies (like the Iron Condor shown), the system recalculates the theoretical price of *each* leg at every point on the X-axis using the stressed DTE and IV values, then aggregates them:
+                    </p>
+                    <pre className="bg-slate-900 p-4 rounded-xl text-blue-400 border border-slate-700 font-mono text-xs overflow-x-auto">
+                      Leg Value = CalculateBSPrice(type, Price_x, K, T_shocked, r, IV_shocked){"\n\n"}
+                      Total PnL = Σ [ (Leg Value - Entry Price) × Quantity × Pos_Multiplier ]{"\n\n"}
+                      Pos_Multiplier: Long = +1, Short = -1
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+          </div>
         </div>
       </div>
     </div>
