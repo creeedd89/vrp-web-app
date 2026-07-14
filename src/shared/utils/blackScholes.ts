@@ -77,3 +77,44 @@ export function calculateGreeks(
     vega: vega / 100 // change per 1% IV change
   };
 }
+
+/**
+ * Calculate the theoretical price of a European option using Black-Scholes.
+ * 
+ * @param type "CALL" or "PUT"
+ * @param S0 Current underlying price
+ * @param K Strike price
+ * @param T Time to expiration (in years)
+ * @param r Risk-free interest rate (decimal, e.g. 0.05)
+ * @param v Implied volatility (decimal, e.g. 0.25)
+ * @returns Theoretical option price
+ */
+export function calculateOptionPrice(
+  type: "CALL" | "PUT",
+  S0: number,
+  K: number,
+  T: number,
+  r: number,
+  v: number
+): number {
+  if (T <= 0) {
+    // At expiration, intrinsic value
+    return type === "CALL" ? Math.max(0, S0 - K) : Math.max(0, K - S0);
+  }
+
+  // Very low volatility, approximate to intrinsic value
+  if (v <= 0.0001) {
+    return type === "CALL"
+      ? Math.max(0, S0 - K * Math.exp(-r * T))
+      : Math.max(0, K * Math.exp(-r * T) - S0);
+  }
+
+  const d1 = (Math.log(S0 / K) + (r + (v * v) / 2) * T) / (v * Math.sqrt(T));
+  const d2 = d1 - v * Math.sqrt(T);
+
+  if (type === "CALL") {
+    return S0 * normalCDF(d1) - K * Math.exp(-r * T) * normalCDF(d2);
+  } else {
+    return K * Math.exp(-r * T) * normalCDF(-d2) - S0 * normalCDF(-d1);
+  }
+}

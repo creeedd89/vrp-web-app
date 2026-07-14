@@ -13,6 +13,7 @@ import {
   BookOpen,
   Activity,
   Briefcase,
+  Target,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/risk-analyzer", label: "Risk Analyzer", icon: ShieldAlert },
   { href: "/portfolio", label: "Portfolio Risk", icon: Briefcase },
   { href: "/screener", label: "Options Screener", icon: ListFilter },
+  { href: "/scenario-analysis", label: "Scenario Analysis", icon: Target },
   { href: "/analytics", label: "Surface Analytics", icon: Activity },
   { href: "/advisory", label: "Advisory", icon: Newspaper },
   { href: "/methodology", label: "Math & Methodology", icon: BookOpen },
